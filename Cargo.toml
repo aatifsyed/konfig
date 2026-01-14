@@ -2,6 +2,11 @@
 name = "konfig"
 version = "0.1.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
+documentation = "https://docs.rs/konfig"
+repository = "https://github.com/aatifsyed/konfig"
+homepage = "https://crates.io/crates/konfig"
+description = "serializable, schemable configuration for popular crates"
 
 [dependencies]
 backon = "1.6.0"
@@ -9,7 +14,17 @@ bytes = { version = "1.11.0", features = ["serde"] }
 http = "1.4.0"
 humantime = "2.3.0"
 regex = { version = "1.12.2", default-features = false, features = ["std"] }
-reqwest = { version = "0.13.1", default-features = false, features = ["brotli", "cookies", "deflate", "gzip", "zstd"] }
+reqwest = { version = "0.13.1", default-features = false, features = [
+    "brotli",
+    "cookies",
+    "default-tls",
+    "deflate",
+    "gzip",
+    "hickory-dns",
+    "http2",
+    "native-tls",
+    "zstd",
+] }
 schemars = { version = "1.2.0", features = ["url2"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_with = { version = "3.16.1", features = ["hex", "schemars_1"] }

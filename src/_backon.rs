@@ -5,7 +5,7 @@ serde! {
     pub struct ConstantBackoff {
         #[serde_as(as = "Option<AsHumanDuration>")]
         pub delay: Option<Duration>,
-        pub max_times: Option<BackoffMaxTimes>,
+        pub max_times: Option<FalseOr<usize>>,
         pub jitter: Option<BackoffJitter>,
     }
 }
@@ -70,8 +70,8 @@ impl ConstantBackoff {
         backon::ConstantBuilder::new()
             .tap_opt(delay, |b, v| b.with_delay(v))
             .tap_opt(max_times, |b, v| match v {
-                BackoffMaxTimes::False => b.without_max_times(),
-                BackoffMaxTimes::MaxTimes(m) => b.with_max_times(m),
+                FalseOr::False => b.without_max_times(),
+                FalseOr::Or(m) => b.with_max_times(m),
             })
             .tap_opt(jitter, |b, v| match v {
                 BackoffJitter::True => b.with_jitter(),
@@ -89,8 +89,9 @@ serde! {
         pub min_delay: Option<Duration>,
         #[serde_as(as = "Option<AsHumanDuration>")]
         pub total_delay: Option<Duration>,
-        pub max_delay: Option<BackoffMaxDelay>,
-        pub max_times: Option<BackoffMaxTimes>,
+        #[serde_as(as = "Option<FalseOrWith<AsHumanDuration, Duration>>")]
+        pub max_delay: Option<FalseOr<Duration>>,
+        pub max_times: Option<FalseOr<usize>>,
     }
 }
 
@@ -113,12 +114,12 @@ impl ExponentialBackoff {
             .tap_opt(min_delay, |b, v| b.with_min_delay(v))
             .tap_opt(total_delay, |b, v| b.with_total_delay(Some(v)))
             .tap_opt(max_delay, |b, v| match v {
-                BackoffMaxDelay::False => b.without_max_delay(),
-                BackoffMaxDelay::MaxDelay(d) => b.with_max_delay(d),
+                FalseOr::False => b.without_max_delay(),
+                FalseOr::Or(d) => b.with_max_delay(d),
             })
             .tap_opt(max_times, |b, v| match v {
-                BackoffMaxTimes::False => b.without_max_times(),
-                BackoffMaxTimes::MaxTimes(u) => b.with_max_times(u),
+                FalseOr::False => b.without_max_times(),
+                FalseOr::Or(u) => b.with_max_times(u),
             })
     }
 }
@@ -129,8 +130,9 @@ serde! {
         pub jitter: Option<BackoffJitter>,
         #[serde_as(as = "Option<AsHumanDuration>")]
         pub min_delay: Option<Duration>,
-        pub max_delay: Option<BackoffMaxDelay>,
-        pub max_times: Option<BackoffMaxTimes>,
+        #[serde_as(as = "Option<FalseOrWith<AsHumanDuration, Duration>>")]
+        pub max_delay: Option<FalseOr<Duration>>,
+        pub max_times: Option<FalseOr<usize>>,
     }
 }
 
@@ -149,31 +151,17 @@ impl FibonacciBackoff {
             })
             .tap_opt(min_delay, |b, v| b.with_min_delay(v))
             .tap_opt(max_delay, |b, v| match v {
-                BackoffMaxDelay::False => b.without_max_delay(),
-                BackoffMaxDelay::MaxDelay(d) => b.with_max_delay(d),
+                FalseOr::False => b.without_max_delay(),
+                FalseOr::Or(d) => b.with_max_delay(d),
             })
             .tap_opt(max_times, |b, v| match v {
-                BackoffMaxTimes::False => b.without_max_times(),
-                BackoffMaxTimes::MaxTimes(u) => b.with_max_times(u),
+                FalseOr::False => b.without_max_times(),
+                FalseOr::Or(u) => b.with_max_times(u),
             })
     }
 }
 
 serde! {
-    #[serde(from = "Untagged<False, ViaHumanDuration>", into = "Untagged<False, ViaHumanDuration>")]
-    #[schemars(with = "Untagged<False, ViaHumanDuration>")]
-    pub enum BackoffMaxDelay {
-        False,
-        MaxDelay(Duration),
-    }
-
-    #[serde(from = "Untagged<False, usize>", into = "Untagged<False, usize>")]
-    #[schemars(with = "Untagged<False, usize>")]
-    pub enum BackoffMaxTimes {
-        False,
-        MaxTimes(usize),
-    }
-
     #[serde(from = "Untagged<True, Seeded>", into = "Untagged<True, Seeded>")]
     #[schemars(with = "Untagged<True, Seeded>")]
     pub enum BackoffJitter {
@@ -185,14 +173,6 @@ serde! {
 }
 
 convert_enum! {
-    BackoffMaxTimes = Untagged<False, usize> {
-        [BackoffMaxTimes::MaxTimes(u)] = [Untagged::Right(u)]
-        [BackoffMaxTimes::False]       = [Untagged::Left(False)]
-    }
-    BackoffMaxDelay = Untagged<False, ViaHumanDuration> {
-        [BackoffMaxDelay::MaxDelay(d)] = [Untagged::Right(ViaHumanDuration(d))]
-        [BackoffMaxDelay::False]       = [Untagged::Left(False)]
-    }
     BackoffJitter = Untagged<True, Seeded> {
         [BackoffJitter::Seeded(seeded)] = [Untagged::Right(Seeded { seeded })]
         [BackoffJitter::True]           = [Untagged::Left(True)]

@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{DeserializeAs, DisplayFromStr, Map, SerializeAs, schemars_1::JsonSchemaAs};
-use std::{borrow::Cow, fmt, time::Duration};
+use std::{borrow::Cow, fmt, marker::PhantomData, time::Duration};
 
 mod _backon;
 mod _regex;
@@ -28,18 +28,18 @@ pub(crate) use serde;
 
 macro_rules! convert_enum {
     ($(
-        $left:ty = $right:ty {
+        $left:ty = $right:ty $([$($generics:tt)*])? {
             $( [$($l:tt)*] = [$($r:tt)*] )*
         }
     )*) => {$(
-        impl From<$left> for $right {
+        impl $(<$($generics)*>)? From<$left> for $right {
             fn from(value: $left) -> $right {
                 match value {
                     $( $($l)* => $($r)* ),*
                 }
             }
         }
-        impl From<$right> for $left {
+        impl $(<$($generics)*>)? From<$right> for $left {
             fn from(value: $right) -> $left {
                 match value {
                     $( $($r)* => $($l)* ),*
@@ -68,16 +68,26 @@ fn assert_round_trip<T: serde::de::DeserializeOwned + Serialize + std::fmt::Debu
 
 type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
-trait TapOpt: Sized {
-    fn tap_opt<T>(self, t: Option<T>, f: impl FnOnce(Self, T) -> Self) -> Self {
-        match t {
-            Some(t) => f(self, t),
+trait Ext: Sized {
+    fn tap_opt<T>(self, opt: Option<T>, f: impl FnOnce(Self, T) -> Self) -> Self {
+        match opt {
+            Some(it) => f(self, it),
             None => self,
+        }
+    }
+    fn try_tap_opt<T, E>(
+        self,
+        opt: Option<T>,
+        f: impl FnOnce(Self, T) -> Result<Self, E>,
+    ) -> Result<Self, E> {
+        match opt {
+            Some(it) => f(self, it),
+            None => Ok(self),
         }
     }
 }
 
-impl<T> TapOpt for T {}
+impl<T> Ext for T {}
 
 struct AsHumanDuration;
 
@@ -125,9 +135,6 @@ impl JsonSchemaAs<Duration> for AsHumanDuration {
 }
 
 serde! {
-    #[serde(transparent)]
-    struct ViaHumanDuration(#[serde_as(as = "AsHumanDuration")] Duration);
-
     #[serde(untagged, bound(
         serialize = "B: AsRef<[u8]>, S: Serialize",
         deserialize = "B: AsRef<[u8]> + From<Vec<u8>>, S: Deserialize<'de>"
@@ -143,6 +150,14 @@ serde! {
         Right(R),
     }
 
+    #[serde(from = "Untagged<False, T>", into = "Untagged<False, T>")]
+    #[serde(bound(serialize = "T: Clone + Serialize"))]
+    #[schemars(with = "Untagged<False, T>")]
+    pub enum FalseOr<T> {
+        False,
+        Or(T)
+    }
+
     #[serde(untagged, expecting = "a map of string to string, or a sequence of pairs of string")]
     enum _HeaderMap {
         Map(
@@ -153,6 +168,79 @@ serde! {
             #[serde_as(as = "Vec<(DisplayFromStr, HeaderValue)>")]
             Vec<(http::HeaderName, http::HeaderValue)>
         )
+    }
+}
+
+convert_enum! {
+    FalseOr<T> = Untagged<False, T> [T] {
+        [FalseOr::False] = [Untagged::Left(False)]
+        [FalseOr::Or(it)] = [Untagged::Right(it)]
+    }
+}
+
+impl<T> FalseOr<T> {
+    fn into_option(self) -> Option<T> {
+        match self {
+            FalseOr::False => None,
+            FalseOr::Or(it) => Some(it),
+        }
+    }
+}
+
+struct FalseOrWith<A, J>(PhantomData<(A, J)>);
+
+impl<A: SerializeAs<T>, T, J> SerializeAs<FalseOr<T>> for FalseOrWith<A, J> {
+    fn serialize_as<S: Serializer>(this: &FalseOr<T>, s: S) -> Result<S::Ok, S::Error> {
+        match this {
+            FalseOr::False => false.serialize(s),
+            FalseOr::Or(it) => A::serialize_as(it, s),
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+enum Never {}
+
+impl<'de, A: DeserializeAs<'de, T>, T, J> DeserializeAs<'de, FalseOr<T>> for FalseOrWith<A, J> {
+    fn deserialize_as<D: Deserializer<'de>>(d: D) -> Result<FalseOr<T>, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(bound = "A: DeserializeAs<'de, T>")]
+        enum FalseOrWithUntagged<T, A> {
+            False(False),
+            Or(#[serde(with = "serde_with::As::<A>")] T),
+            As { never: Never, _a: PhantomData<A> },
+        }
+        Ok(match FalseOrWithUntagged::<T, A>::deserialize(d)? {
+            FalseOrWithUntagged::False(False) => FalseOr::False,
+            FalseOrWithUntagged::Or(it) => FalseOr::Or(it),
+            FalseOrWithUntagged::As { never, _a } => match never {},
+        })
+    }
+}
+
+impl<A: JsonSchemaAs<J>, T, J> JsonSchemaAs<T> for FalseOrWith<A, J> {
+    fn schema_name() -> Cow<'static, str> {
+        format!("FalseOr<{}>", A::schema_name()).into()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "anyOf": [
+                {
+                    "const": false
+                },
+                A::json_schema(generator)
+            ]
+        })
+    }
+
+    fn schema_id() -> Cow<'static, str> {
+        format!(
+            "{}::{}",
+            module_path!(),
+            <Self as JsonSchemaAs<T>>::schema_name()
+        )
+        .into()
     }
 }
 
