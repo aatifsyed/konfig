@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, net::IpAddr};
 
 use url::Url;
 
@@ -18,44 +18,92 @@ serde! {
         pub referer: Option<bool>,
         pub retry: Option<ReqwestClientRetry>,
         pub proxies: Option<ReqwestClientProxies>,
-        #[serde_as(as = "Option<HumanDuration>")]
+        #[serde_as(as = "Option<AsHumanDuration>")]
         pub timeout: Option<Duration>,
-        #[serde_as(as = "Option<HumanDuration>")]
+        #[serde_as(as = "Option<AsHumanDuration>")]
         pub read_timeout: Option<Duration>,
-        #[serde_as(as = "Option<HumanDuration>")]
+        #[serde_as(as = "Option<AsHumanDuration>")]
         pub connect_timeout: Option<Duration>,
         pub connection_verbose: Option<bool>,
+        pub pool_idle_timeout: Option<ReqwestClientOptionalDuration>,
+        pub pool_max_idle_per_host: Option<usize>,
+        pub http1_title_case_headers: Option<bool>,
+        pub http1_allow_obsolete_multiline_headers_in_responses: Option<bool>,
+        pub http1_ignore_invalid_headers_in_responses: Option<bool>,
+        pub http1_allow_spaces_after_header_name_in_responses: Option<bool>,
+        pub http1_only: Option<bool>,
+        pub http09_responses: Option<bool>,
+        pub http2_prior_knowledge: Option<bool>,
+        pub http2_initial_stream_window_size: Option<ReqwestClientOptionalSize>,
+        pub http2_initial_connection_window_size: Option<ReqwestClientOptionalSize>,
+        pub http2_adaptive_window: Option<bool>,
+        pub http2_max_frame_size: Option<ReqwestClientOptionalSize>,
+        pub http2_max_list_size: Option<u32>,
+        pub http2_keep_alive_interval: Option<ReqwestClientOptionalDuration>,
+        #[serde_as(as = "Option<AsHumanDuration>")]
+        pub http2_keep_alive_timeout: Option<Duration>,
+        pub http2_keep_alive_while_idle: Option<bool>,
+        pub tcp_nodelay: Option<bool>,
+        pub local_address: Option<ReqwestClientOptionalIpAddr>,
+        pub interface: Option<String>,
+        pub tcp_keepalive: Option<ReqwestClientOptionalDuration>,
+        pub tcp_keepalive_internal: Option<ReqwestClientOptionalDuration>,
+        pub tcp_keepalive_retries: Option<ReqwestClientOptionalSize>,
+        pub tcp_user_timeout: Option<ReqwestClientOptionalDuration>,
+        pub unix_socket: Option<String>,
+        pub tls_certs: Option<ReqwestClientTlsCerts>,
     }
 
-    #[serde(into = "_ReqwestClientProxies", from = "_ReqwestClientProxies")]
-    #[schemars(with = "_ReqwestClientProxies")]
+    #[serde(into = "Untagged<False, Vec<ReqwestClientProxy>>", from = "Untagged<False, Vec<ReqwestClientProxy>>")]
+    #[schemars(with = "Untagged<False, Vec<ReqwestClientProxy>>")]
     pub enum ReqwestClientProxies {
         False,
-        Proxies(Vec<ReqwestClientProxy>)
+        Proxies(Vec<ReqwestClientProxy>),
     }
 
-    #[serde(untagged)]
-    enum _ReqwestClientProxies {
-        False(False),
-        Proxies(Vec<ReqwestClientProxy>)
+    #[serde(into = "Untagged<False, ViaHumanDuration>", from = "Untagged<False, ViaHumanDuration>")]
+    #[schemars(with = "Untagged<False, ViaHumanDuration>")]
+    pub enum ReqwestClientOptionalDuration {
+        False,
+        Duration(Duration),
+    }
+
+    #[serde(into = "Untagged<False, u32>", from = "Untagged<False, u32>")]
+    #[schemars(with = "Untagged<False, u32>")]
+    pub enum ReqwestClientOptionalSize {
+        False,
+        Size(u32),
+    }
+
+    #[serde(into = "Untagged<False, IpAddr>", from = "Untagged<False, IpAddr>")]
+    #[schemars(with = "Untagged<False, IpAddr>")]
+    pub enum ReqwestClientOptionalIpAddr {
+        False,
+        IpAddr(IpAddr)
+    }
+
+    pub enum ReqwestClientTlsCerts {
+        Merge(Vec<reqwest::tls::Certificate>),
+        Only(Vec<reqwest::tls::Certificate>),
     }
 }
 
-impl From<_ReqwestClientProxies> for ReqwestClientProxies {
-    fn from(value: _ReqwestClientProxies) -> Self {
-        match value {
-            _ReqwestClientProxies::False(False) => Self::False,
-            _ReqwestClientProxies::Proxies(items) => Self::Proxies(items),
-        }
+convert_enum! {
+    ReqwestClientProxies = Untagged<False, Vec<ReqwestClientProxy>> {
+        [ReqwestClientProxies::False] = [Untagged::Left(False)]
+        [ReqwestClientProxies::Proxies(v)] = [Untagged::Right(v)]
     }
-}
-
-impl From<ReqwestClientProxies> for _ReqwestClientProxies {
-    fn from(value: ReqwestClientProxies) -> Self {
-        match value {
-            ReqwestClientProxies::False => Self::False(False),
-            ReqwestClientProxies::Proxies(items) => Self::Proxies(items),
-        }
+    ReqwestClientOptionalDuration = Untagged<False, ViaHumanDuration> {
+        [ReqwestClientOptionalDuration::Duration(d)] = [Untagged::Right(ViaHumanDuration(d))]
+        [ReqwestClientOptionalDuration::False]       = [Untagged::Left(False)]
+    }
+    ReqwestClientOptionalSize = Untagged<False, u32> {
+        [ReqwestClientOptionalSize::False] = [Untagged::Left(False)]
+        [ReqwestClientOptionalSize::Size(u)] = [Untagged::Right(u)]
+    }
+    ReqwestClientOptionalIpAddr = Untagged<False, IpAddr> {
+        [ReqwestClientOptionalIpAddr::False] = [Untagged::Left(False)]
+        [ReqwestClientOptionalIpAddr::IpAddr(addr)] = [Untagged::Right(addr)]
     }
 }
 
@@ -140,20 +188,20 @@ serde! {
         Either,
     }
 
-    #[serde(from = "_ReqwestClientNoProxy", into = "_ReqwestClientNoProxy")]
-    #[schemars(with = "_ReqwestClientNoProxy")]
+    #[serde(from = "Untagged<String, FromEnv>", into = "Untagged<String, FromEnv>")]
+    #[schemars(with = "Untagged<String, FromEnv>")]
     pub enum ReqwestClientNoProxy {
+        String(String),
         FromEnv,
-        String(String)
     }
 
-    #[serde(untagged)]
-    enum _ReqwestClientNoProxy {
-        #[serde(rename_all = "kebab-case")]
-        FromEnv {
-            from_env: True,
-        },
-        String(String)
+    struct FromEnv { from_env: True }
+}
+
+convert_enum! {
+    ReqwestClientNoProxy = Untagged<String, FromEnv> {
+        [ReqwestClientNoProxy::String(s)] = [Untagged::Left(s)]
+        [ReqwestClientNoProxy::FromEnv]   = [Untagged::Right(FromEnv { from_env: True })]
     }
 }
 
@@ -194,22 +242,4 @@ fn reqwest_client_no_proxy() {
         FromEnv
     "#]],
     );
-}
-
-impl From<_ReqwestClientNoProxy> for ReqwestClientNoProxy {
-    fn from(value: _ReqwestClientNoProxy) -> Self {
-        match value {
-            _ReqwestClientNoProxy::FromEnv { from_env: True } => Self::FromEnv,
-            _ReqwestClientNoProxy::String(s) => Self::String(s),
-        }
-    }
-}
-
-impl From<ReqwestClientNoProxy> for _ReqwestClientNoProxy {
-    fn from(value: ReqwestClientNoProxy) -> Self {
-        match value {
-            ReqwestClientNoProxy::FromEnv => Self::FromEnv { from_env: True },
-            ReqwestClientNoProxy::String(s) => Self::String(s),
-        }
-    }
 }

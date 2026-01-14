@@ -3,7 +3,7 @@ use crate::*;
 serde! {
     #[derive(Default)]
     pub struct ConstantBackoff {
-        #[serde_as(as = "Option<HumanDuration>")]
+        #[serde_as(as = "Option<AsHumanDuration>")]
         pub delay: Option<Duration>,
         pub max_times: Option<BackoffMaxTimes>,
         pub jitter: Option<BackoffJitter>,
@@ -85,9 +85,9 @@ serde! {
     pub struct ExponentialBackoff {
         pub jitter: Option<BackoffJitter>,
         pub factor: Option<f32>,
-        #[serde_as(as = "Option<HumanDuration>")]
+        #[serde_as(as = "Option<AsHumanDuration>")]
         pub min_delay: Option<Duration>,
-        #[serde_as(as = "Option<HumanDuration>")]
+        #[serde_as(as = "Option<AsHumanDuration>")]
         pub total_delay: Option<Duration>,
         pub max_delay: Option<BackoffMaxDelay>,
         pub max_times: Option<BackoffMaxTimes>,
@@ -127,7 +127,7 @@ serde! {
     #[derive(Default)]
     pub struct FibonacciBackoff {
         pub jitter: Option<BackoffJitter>,
-        #[serde_as(as = "Option<HumanDuration>")]
+        #[serde_as(as = "Option<AsHumanDuration>")]
         pub min_delay: Option<Duration>,
         pub max_delay: Option<BackoffMaxDelay>,
         pub max_times: Option<BackoffMaxTimes>,
@@ -160,102 +160,41 @@ impl FibonacciBackoff {
 }
 
 serde! {
-    #[serde(from = "_BackoffMaxDelay", into = "_BackoffMaxDelay")]
-    #[schemars(with = "_BackoffMaxDelay")]
+    #[serde(from = "Untagged<False, ViaHumanDuration>", into = "Untagged<False, ViaHumanDuration>")]
+    #[schemars(with = "Untagged<False, ViaHumanDuration>")]
     pub enum BackoffMaxDelay {
         False,
         MaxDelay(Duration),
     }
 
-    #[serde(untagged)]
-    enum _BackoffMaxDelay {
-        False(False),
-        MaxDelay (
-            #[serde_as(as = "HumanDuration")]
-            Duration
-        )
-    }
-}
-
-impl From<_BackoffMaxDelay> for BackoffMaxDelay {
-    fn from(value: _BackoffMaxDelay) -> Self {
-        match value {
-            _BackoffMaxDelay::False(False) => Self::False,
-            _BackoffMaxDelay::MaxDelay(max_delay) => Self::MaxDelay(max_delay),
-        }
-    }
-}
-
-impl From<BackoffMaxDelay> for _BackoffMaxDelay {
-    fn from(value: BackoffMaxDelay) -> Self {
-        match value {
-            BackoffMaxDelay::False => Self::False(False),
-            BackoffMaxDelay::MaxDelay(max_delay) => Self::MaxDelay(max_delay),
-        }
-    }
-}
-
-serde! {
-    #[serde(from = "_BackoffMaxTimes", into = "_BackoffMaxTimes")]
-    #[schemars(with = "_BackoffMaxTimes")]
+    #[serde(from = "Untagged<False, usize>", into = "Untagged<False, usize>")]
+    #[schemars(with = "Untagged<False, usize>")]
     pub enum BackoffMaxTimes {
         False,
         MaxTimes(usize),
     }
 
-    #[serde(untagged)]
-    enum _BackoffMaxTimes {
-        MaxTimes(usize),
-        False(False),
-    }
-}
-
-impl From<_BackoffMaxTimes> for BackoffMaxTimes {
-    fn from(value: _BackoffMaxTimes) -> Self {
-        match value {
-            _BackoffMaxTimes::False(False) => Self::False,
-            _BackoffMaxTimes::MaxTimes(max_times) => Self::MaxTimes(max_times),
-        }
-    }
-}
-impl From<BackoffMaxTimes> for _BackoffMaxTimes {
-    fn from(value: BackoffMaxTimes) -> Self {
-        match value {
-            BackoffMaxTimes::False => Self::False(False),
-            BackoffMaxTimes::MaxTimes(max_times) => Self::MaxTimes(max_times),
-        }
-    }
-}
-
-serde! {
-    #[serde(from = "_BackoffJitter", into = "_BackoffJitter")]
-    #[schemars(with = "_BackoffJitter")]
+    #[serde(from = "Untagged<True, Seeded>", into = "Untagged<True, Seeded>")]
+    #[schemars(with = "Untagged<True, Seeded>")]
     pub enum BackoffJitter {
         True,
         Seeded(u64),
     }
 
-    #[serde(untagged)]
-    enum _BackoffJitter {
-        True(True),
-        Seeded { seeded: u64 },
-    }
+    struct Seeded { seeded: u64 }
 }
 
-impl From<_BackoffJitter> for BackoffJitter {
-    fn from(value: _BackoffJitter) -> Self {
-        match value {
-            _BackoffJitter::True(True) => Self::True,
-            _BackoffJitter::Seeded { seeded } => Self::Seeded(seeded),
-        }
+convert_enum! {
+    BackoffMaxTimes = Untagged<False, usize> {
+        [BackoffMaxTimes::MaxTimes(u)] = [Untagged::Right(u)]
+        [BackoffMaxTimes::False]       = [Untagged::Left(False)]
     }
-}
-
-impl From<BackoffJitter> for _BackoffJitter {
-    fn from(value: BackoffJitter) -> Self {
-        match value {
-            BackoffJitter::True => _BackoffJitter::True(True),
-            BackoffJitter::Seeded(seeded) => _BackoffJitter::Seeded { seeded },
-        }
+    BackoffMaxDelay = Untagged<False, ViaHumanDuration> {
+        [BackoffMaxDelay::MaxDelay(d)] = [Untagged::Right(ViaHumanDuration(d))]
+        [BackoffMaxDelay::False]       = [Untagged::Left(False)]
+    }
+    BackoffJitter = Untagged<True, Seeded> {
+        [BackoffJitter::Seeded(seeded)] = [Untagged::Right(Seeded { seeded })]
+        [BackoffJitter::True]           = [Untagged::Left(True)]
     }
 }

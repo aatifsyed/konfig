@@ -26,6 +26,30 @@ macro_rules! serde {
 }
 pub(crate) use serde;
 
+macro_rules! convert_enum {
+    ($(
+        $left:ty = $right:ty {
+            $( [$($l:tt)*] = [$($r:tt)*] )*
+        }
+    )*) => {$(
+        impl From<$left> for $right {
+            fn from(value: $left) -> $right {
+                match value {
+                    $( $($l)* => $($r)* ),*
+                }
+            }
+        }
+        impl From<$right> for $left {
+            fn from(value: $right) -> $left {
+                match value {
+                    $( $($r)* => $($l)* ),*
+                }
+            }
+        }
+    )*};
+}
+pub(crate) use convert_enum;
+
 #[cfg(test)]
 pub(crate) use {expect_test::expect, serde_json::json};
 
@@ -55,14 +79,14 @@ trait TapOpt: Sized {
 
 impl<T> TapOpt for T {}
 
-struct HumanDuration;
+struct AsHumanDuration;
 
-impl SerializeAs<Duration> for HumanDuration {
+impl SerializeAs<Duration> for AsHumanDuration {
     fn serialize_as<S: Serializer>(this: &Duration, s: S) -> Result<S::Ok, S::Error> {
         s.collect_str(&humantime::format_duration(*this))
     }
 }
-impl<'de> DeserializeAs<'de, Duration> for HumanDuration {
+impl<'de> DeserializeAs<'de, Duration> for AsHumanDuration {
     fn deserialize_as<D: Deserializer<'de>>(d: D) -> Result<Duration, D::Error> {
         let s = String::deserialize(d)?;
         humantime::parse_duration(&s).map_err(|e| {
@@ -78,13 +102,13 @@ impl<'de> DeserializeAs<'de, Duration> for HumanDuration {
     }
 }
 
-impl JsonSchemaAs<Duration> for HumanDuration {
+impl JsonSchemaAs<Duration> for AsHumanDuration {
     fn schema_name() -> Cow<'static, str> {
-        "HumanDuration".into()
+        "AsHumanDuration".into()
     }
     fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
         schemars::json_schema!({
-            "title": "HumanDuration",
+            "title": "AsHumanDuration",
             "type": "string",
             "description": "a human-readable duration",
             "examples": [
@@ -101,13 +125,22 @@ impl JsonSchemaAs<Duration> for HumanDuration {
 }
 
 serde! {
+    #[serde(transparent)]
+    struct ViaHumanDuration(#[serde_as(as = "AsHumanDuration")] Duration);
+
     #[serde(untagged, bound(
         serialize = "B: AsRef<[u8]>, S: Serialize",
         deserialize = "B: AsRef<[u8]> + From<Vec<u8>>, S: Deserialize<'de>"
     ))]
     enum OrHex<S, B> {
         Inline(S),
-        Hex { #[serde_as(as = "serde_with::hex::Hex")]  hex: B },
+        Hex { #[serde_as(as = "serde_with::hex::Hex")] hex: B },
+    }
+
+    #[serde(untagged)]
+    enum Untagged<L, R> {
+        Left(L),
+        Right(R),
     }
 
     #[serde(untagged, expecting = "a map of string to string, or a sequence of pairs of string")]
