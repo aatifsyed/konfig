@@ -1,11 +1,12 @@
 use std::{num::NonZero, time::Duration};
 
 use crate::*;
+use ::tokio;
 
 serde! {
     #[derive(Default)]
-    pub struct TokioRuntime {
-        pub flavor: TokioRuntimeFlavor,
+    pub struct Runtime {
+        pub flavor: RuntimeFlavor,
         pub worker_threads: Option<NonZero<usize>>,
         pub max_blocking_threads: Option<NonZero<usize>>,
         pub thread_name: Option<String>,
@@ -20,14 +21,14 @@ serde! {
     }
 
     #[derive(Default)]
-    pub enum TokioRuntimeFlavor {
+    pub enum RuntimeFlavor {
         CurrentThread,
         #[default]
         MultiThread,
     }
 }
 
-impl TokioRuntime {
+impl Runtime {
     pub fn builder(self) -> tokio::runtime::Builder {
         let Self {
             flavor,
@@ -43,8 +44,8 @@ impl TokioRuntime {
             thread_name,
         } = self;
         let mut b = match flavor {
-            TokioRuntimeFlavor::CurrentThread => tokio::runtime::Builder::new_current_thread(),
-            TokioRuntimeFlavor::MultiThread => tokio::runtime::Builder::new_multi_thread(),
+            RuntimeFlavor::CurrentThread => tokio::runtime::Builder::new_current_thread(),
+            RuntimeFlavor::MultiThread => tokio::runtime::Builder::new_multi_thread(),
         };
         (&mut b)
             .tap_opt(worker_threads, |b, v| b.worker_threads(v.get()))

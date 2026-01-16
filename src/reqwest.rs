@@ -7,10 +7,11 @@ use serde_with::TryFromInto;
 use url::Url;
 
 use crate::*;
+use ::reqwest;
 
 serde! {
     #[derive(Default)]
-    pub struct ReqwestClient {
+    pub struct Client {
         #[serde_as(as = "Option<HeaderMap>")]
         pub default_headers: Option<http::HeaderMap>,
         pub cookie_store: Option<bool>,
@@ -20,8 +21,8 @@ serde! {
         pub deflate: Option<bool>,
         pub redirect: Option<usize>,
         pub referer: Option<bool>,
-        pub retry: Option<ReqwestClientRetry>,
-        pub proxies: Option<FalseOr<Vec<ReqwestClientProxy>>>,
+        pub retry: Option<ClientRetry>,
+        pub proxies: Option<FalseOr<Vec<Proxy>>>,
         #[serde_as(as = "Option<AsHumanDuration>")]
         pub timeout: Option<Duration>,
         #[serde_as(as = "Option<AsHumanDuration>")]
@@ -60,8 +61,8 @@ serde! {
         #[serde_as(as = "Option<FalseOrWith<AsHumanDuration, Duration>>")]
         pub tcp_user_timeout: Option<FalseOr<Duration>>,
         pub unix_socket: Option<String>,
-        pub tls_certs: Option<ReqwestClientTlsCerts>,
-        pub tls_crls: Option<ReqwestClientTlsCrls>,
+        pub tls_certs: Option<TlsCerts>,
+        pub tls_crls: Option<TlsCrls>,
         pub identity: Option<String>,
         pub tls_danger_accept_invalid_hostnames: Option<bool>,
         pub tls_danger_accept_invalid_certs: Option<bool>,
@@ -74,19 +75,19 @@ serde! {
         pub https_only: Option<bool>,
         pub hickory_dns: Option<bool>,
         pub resolve: Option<BTreeMap<String, Vec<SocketAddr>>>,
-        pub tls_backend: Option<ReqwestClientTlsBackend>
+        pub tls_backend: Option<TlsBackend>
     }
 
-    pub enum ReqwestClientTlsCerts {
+    pub enum TlsCerts {
         Merge(Vec<String>),
         Only(Vec<String>),
     }
 
-    pub enum ReqwestClientTlsCrls {
+    pub enum TlsCrls {
         Only(Vec<String>),
     }
 
-    pub enum ReqwestClientTlsBackend {
+    pub enum TlsBackend {
         Native,
         Rustls
     }
@@ -103,7 +104,7 @@ serde! {
     }
 }
 
-impl ReqwestClient {
+impl Client {
     pub fn builder(self) -> Result<reqwest::ClientBuilder, BoxError> {
         let Self {
             default_headers,
@@ -224,19 +225,19 @@ impl ReqwestClient {
                 return b;
             })
             .try_tap_opt(tls_certs, |b, v| match v {
-                ReqwestClientTlsCerts::Merge(v) => v
+                TlsCerts::Merge(v) => v
                     .into_iter()
                     .map(|s| reqwest::tls::Certificate::from_pem(s.as_bytes()))
                     .collect::<Result<Vec<_>, _>>()
                     .map(|v| b.tls_certs_merge(v)),
-                ReqwestClientTlsCerts::Only(v) => v
+                TlsCerts::Only(v) => v
                     .into_iter()
                     .map(|s| reqwest::tls::Certificate::from_pem(s.as_bytes()))
                     .collect::<Result<Vec<_>, _>>()
                     .map(|v| b.tls_certs_only(v)),
             })?
             .try_tap_opt(tls_crls, |b, v| match v {
-                ReqwestClientTlsCrls::Only(v) => v
+                TlsCrls::Only(v) => v
                     .into_iter()
                     .map(|s| reqwest::tls::CertificateRevocationList::from_pem(s.as_bytes()))
                     .collect::<Result<Vec<_>, _>>()
@@ -285,8 +286,8 @@ impl ReqwestClient {
                     .fold(b, |b, (domain, addrs)| b.resolve_to_addrs(&domain, &addrs))
             })
             .tap_opt(tls_backend, |b, v| match v {
-                ReqwestClientTlsBackend::Native => b.tls_backend_native(),
-                ReqwestClientTlsBackend::Rustls => b.tls_backend_rustls(),
+                TlsBackend::Native => b.tls_backend_native(),
+                TlsBackend::Rustls => b.tls_backend_rustls(),
             }))
     }
 }
@@ -316,8 +317,8 @@ impl TryFrom<reqwest::tls::Version> for _Version {
 }
 
 serde! {
-    pub struct ReqwestClientRetry {
-        pub host: ReqwestClientRetryHost,
+    pub struct ClientRetry {
+        pub host: RetryHost,
         pub unlimited: Option<bool>,
         #[serde_as(as = "Option<BoundedFloat<0, 1000>>")]
         pub max_extra_load: Option<f32>,
@@ -325,16 +326,16 @@ serde! {
     }
 
     #[serde(untagged)]
-    pub enum ReqwestClientRetryHost {
+    pub enum RetryHost {
         Host(String),
-        Regex { regex: Regex },
+        Regex { regex: regex::Regex },
         #[serde(rename_all = "kebab-case")]
-        RegexSet { regex_set: RegexSet },
+        RegexSet { regex_set: regex::RegexSet },
         Hosts(HashSet<String>),
     }
 }
 
-impl ReqwestClientRetry {
+impl ClientRetry {
     pub fn builder(self) -> Result<reqwest::retry::Builder, BoxError> {
         let Self {
             host,
@@ -343,9 +344,9 @@ impl ReqwestClientRetry {
             max_retries_per_request,
         } = self;
         let b = match host {
-            ReqwestClientRetryHost::Host(s) => reqwest::retry::for_host(s),
-            ReqwestClientRetryHost::Regex { regex } => {
-                struct RegexIsMatch(regex::Regex);
+            RetryHost::Host(s) => reqwest::retry::for_host(s),
+            RetryHost::Regex { regex } => {
+                struct RegexIsMatch(::regex::Regex);
                 impl PartialEq<&str> for RegexIsMatch {
                     fn eq(&self, other: &&str) -> bool {
                         self.0.is_match(other)
@@ -353,8 +354,8 @@ impl ReqwestClientRetry {
                 }
                 reqwest::retry::for_host(RegexIsMatch(regex.builder().build()?))
             }
-            ReqwestClientRetryHost::RegexSet { regex_set } => {
-                struct RegexSetIsMatch(regex::RegexSet);
+            RetryHost::RegexSet { regex_set } => {
+                struct RegexSetIsMatch(::regex::RegexSet);
                 impl PartialEq<&str> for RegexSetIsMatch {
                     fn eq(&self, other: &&str) -> bool {
                         self.0.is_match(other)
@@ -362,7 +363,7 @@ impl ReqwestClientRetry {
                 }
                 reqwest::retry::for_host(RegexSetIsMatch(regex_set.builder().build()?))
             }
-            ReqwestClientRetryHost::Hosts(items) => {
+            RetryHost::Hosts(items) => {
                 struct SetStringIsMatch(HashSet<String>);
                 impl PartialEq<&str> for SetStringIsMatch {
                     fn eq(&self, other: &&str) -> bool {
@@ -382,15 +383,15 @@ impl ReqwestClientRetry {
 }
 
 serde! {
-    pub struct ReqwestClientProxy {
+    pub struct Proxy {
         pub url: Url,
-        pub protocol: ReqwestProxyProtocol,
+        pub protocol: ProxyProtocol,
         #[serde_as(as = "Option<HeaderMap>")]
         pub headers: Option<http::HeaderMap>,
-        pub no_proxy: Option<ReqwestClientNoProxy>,
+        pub no_proxy: Option<NoProxy>,
     }
 
-    pub enum ReqwestProxyProtocol {
+    pub enum ProxyProtocol {
         Http,
         Https,
         Either,
@@ -398,7 +399,7 @@ serde! {
 
     #[serde(from = "Untagged<String, FromEnv>", into = "Untagged<String, FromEnv>")]
     #[schemars(with = "Untagged<String, FromEnv>")]
-    pub enum ReqwestClientNoProxy {
+    pub enum NoProxy {
         String(String),
         FromEnv,
     }
@@ -407,13 +408,13 @@ serde! {
 }
 
 convert_enum! {
-    ReqwestClientNoProxy = Untagged<String, FromEnv> {
-        [ReqwestClientNoProxy::String(s)] = [Untagged::Left(s)]
-        [ReqwestClientNoProxy::FromEnv]   = [Untagged::Right(FromEnv { from_env: True })]
+    NoProxy = Untagged<String, FromEnv> {
+        [NoProxy::String(s)] = [Untagged::Left(s)]
+        [NoProxy::FromEnv]   = [Untagged::Right(FromEnv { from_env: True })]
     }
 }
 
-impl ReqwestClientProxy {
+impl Proxy {
     pub fn build(self) -> reqwest::Result<reqwest::Proxy> {
         let Self {
             url,
@@ -422,21 +423,21 @@ impl ReqwestClientProxy {
             no_proxy,
         } = self;
         Ok(match protocol {
-            ReqwestProxyProtocol::Http => reqwest::Proxy::http(url),
-            ReqwestProxyProtocol::Https => reqwest::Proxy::https(url),
-            ReqwestProxyProtocol::Either => reqwest::Proxy::all(url),
+            ProxyProtocol::Http => reqwest::Proxy::http(url),
+            ProxyProtocol::Https => reqwest::Proxy::https(url),
+            ProxyProtocol::Either => reqwest::Proxy::all(url),
         }?
         .tap_opt(headers, |b, v| b.headers(v))
         .tap_opt(no_proxy, |b, v| match v {
-            ReqwestClientNoProxy::FromEnv => b.no_proxy(reqwest::NoProxy::from_env()),
-            ReqwestClientNoProxy::String(s) => b.no_proxy(reqwest::NoProxy::from_string(&s)),
+            NoProxy::FromEnv => b.no_proxy(reqwest::NoProxy::from_env()),
+            NoProxy::String(s) => b.no_proxy(reqwest::NoProxy::from_string(&s)),
         }))
     }
 }
 
 #[test]
 fn reqwest_client_no_proxy() {
-    assert_round_trip::<ReqwestClientNoProxy>(
+    assert_round_trip::<NoProxy>(
         json!("hello"),
         expect![[r#"
         String(
@@ -444,7 +445,7 @@ fn reqwest_client_no_proxy() {
         )
     "#]],
     );
-    assert_round_trip::<ReqwestClientNoProxy>(
+    assert_round_trip::<NoProxy>(
         json!({"from-env": true}),
         expect![[r#"
         FromEnv

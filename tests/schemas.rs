@@ -1,14 +1,14 @@
 macro_rules! test {
-    ($($ty:ident),* $(,)?) => {$(
+    ($($ident:ident: $ty:ty);* $(;)?) => {$(
         #[test]
         #[allow(non_snake_case)]
-        fn $ty() {
+        fn $ident() {
             ensuring_parent_dir(::expect_test::expect_file![
                 ::core::concat!("schemas/", ::core::stringify!($ty), ".schema.json")
             ]).assert_eq(
                 &::std::format!(
                     "{:#}",
-                    ::schemars::schema_for!(konfig::$ty).as_value()
+                    ::schemars::schema_for!($ty).as_value()
                 )
             );
         }
@@ -21,5 +21,5 @@ fn ensuring_parent_dir(e: expect_test::ExpectFile) -> expect_test::ExpectFile {
 }
 
 test! {
-    ReqwestClient
+    reqwest_client: konfig::reqwest::Client;
 }

@@ -1,4 +1,5 @@
 use crate::*;
+use ::regex;
 
 serde! {
     pub struct Regex {
