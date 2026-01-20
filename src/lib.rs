@@ -1,9 +1,10 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{DeserializeAs, DisplayFromStr, Map, SerializeAs, schemars_1::JsonSchemaAs};
-use std::{borrow::Cow, fmt, marker::PhantomData, time::Duration};
+use std::{borrow::Cow, collections::BTreeMap, fmt, marker::PhantomData, time::Duration};
 
 pub mod backon;
+pub mod otel;
 pub mod regex;
 pub mod reqwest;
 pub mod tokio;
@@ -415,4 +416,29 @@ literal! {
     struct True(bool = true);
     #[derive(Clone, Debug)]
     struct False(bool = false);
+}
+
+fn is_empty<T: IsEmpty>(this: &T) -> bool {
+    T::is_empty(this)
+}
+
+trait IsEmpty {
+    fn is_empty(&self) -> bool;
+}
+
+impl IsEmpty for String {
+    fn is_empty(&self) -> bool {
+        String::is_empty(self)
+    }
+}
+
+impl<T> IsEmpty for Vec<T> {
+    fn is_empty(&self) -> bool {
+        Vec::is_empty(self)
+    }
+}
+impl<K, V> IsEmpty for BTreeMap<K, V> {
+    fn is_empty(&self) -> bool {
+        BTreeMap::is_empty(self)
+    }
 }
