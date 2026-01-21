@@ -7,17 +7,16 @@ use std::{
 };
 
 use opentelemetry::{KeyValue, metrics::MeterProvider as _, trace::TracerProvider as _};
-
 use opentelemetry_otlp::{
-    Compression, ExporterBuildError, HasExportConfig, HasHttpConfig, HasTonicConfig,
-    MetricExporterBuilder, Protocol, SpanExporterBuilder, WithExportConfig, WithHttpConfig,
-    WithTonicConfig as _,
+    ExporterBuildError, HasExportConfig, HasHttpConfig, HasTonicConfig, MetricExporterBuilder,
+    SpanExporterBuilder, WithExportConfig, WithHttpConfig, WithTonicConfig as _,
 };
 use opentelemetry_sdk::{
     metrics::{MeterProviderBuilder, PeriodicReader, PeriodicReaderBuilder},
     resource::ResourceBuilder,
     trace::{SdkTracerProvider, TracerProviderBuilder},
 };
+use serde_with::FromInto;
 
 serde! {
     pub struct InstrumentationScope {
@@ -40,9 +39,8 @@ serde! {
         pub endpoint: Option<String>,
         #[serde_as(as = "Option<AsHumanDuration>")]
         pub timeout: Option<Duration>,
-        // #[serde(with = "Option<_Protocol>")]
-        // #[schemars(with = "_Protocol")]
-        // pub protocol: Option<opentelemetry_otlp::Protocol>,
+        #[serde_as(as = "Option<FromInto<_Protocol>>")]
+        pub protocol: Option<opentelemetry_otlp::Protocol>,
     }
 
 
@@ -63,17 +61,27 @@ serde! {
         String(Vec<String>),
     }
 
-    #[serde(remote = "opentelemetry_otlp::Protocol")]
     enum _Protocol {
         Grpc,
         HttpBinary,
         HttpJson,
     }
 
-    #[serde(remote = "opentelemetry_otlp::Compression")]
     enum _Compression {
         Gzip,
         Zstd,
+    }
+}
+
+convert_enum! {
+    _Protocol = opentelemetry_otlp::Protocol {
+        [_Protocol::Grpc]       = [opentelemetry_otlp::Protocol::Grpc]
+        [_Protocol::HttpBinary] = [opentelemetry_otlp::Protocol::HttpBinary]
+        [_Protocol::HttpJson]   = [opentelemetry_otlp::Protocol::HttpJson]
+    }
+    _Compression = opentelemetry_otlp::Compression {
+        [_Compression::Gzip] = [opentelemetry_otlp::Compression::Gzip]
+        [_Compression::Zstd] = [opentelemetry_otlp::Compression::Zstd]
     }
 }
 
@@ -128,5 +136,21 @@ impl From<Array> for opentelemetry::Array {
             Array::F64(items) => Self::F64(items),
             Array::String(items) => Self::String(items.into_iter().map(Into::into).collect()),
         }
+    }
+}
+
+impl ExportConfig {
+    pub fn apply<T: HasExportConfig>(self, mut to: T) -> T {
+        let Self {
+            endpoint,
+            timeout,
+            protocol,
+        } = self;
+        let protocol = protocol.unwrap_or(to.export_config().protocol);
+        to.with_export_config(opentelemetry_otlp::ExportConfig {
+            endpoint,
+            protocol,
+            timeout,
+        })
     }
 }
