@@ -13,10 +13,13 @@ use serde_with::FromInto;
 
 serde! {
     pub struct Logger {
+        #[serde(default)]
         pub scope: InstrumentationScope,
+        #[serde(default)]
         pub provider: LoggerProvider,
     }
 
+    #[derive(Default)]
     pub struct LoggerProvider {
         #[serde(default)]
         pub resource: Resource,
@@ -26,22 +29,7 @@ serde! {
 
     pub struct LogProcessor {
         pub batch: Option<LoggerBatchConfig>,
-        pub exporter: LogExporter,
-    }
-
-    pub enum LogExporter {
-        Http {
-            #[serde(default)]
-            export: ExportConfig,
-            #[serde(default)]
-            config: HttpConfig,
-        },
-        Tonic {
-            #[serde(default)]
-            export: ExportConfig,
-            #[serde(default)]
-            config: TonicConfig,
-        }
+        pub exporter: Exporter,
     }
 
     pub struct LoggerBatchConfig {
@@ -61,28 +49,30 @@ impl LoggerProvider {
         processors.into_iter().try_fold(
             opentelemetry_sdk::logs::LoggerProviderBuilder::default()
                 .with_resource(resource.builder().build()),
-            |b, LogProcessor { batch, exporter }| match batch {
-                None => exporter.build().map(|e| b.with_simple_exporter(e)),
-                Some(c) => Ok(b.with_log_processor(
-                    opentelemetry_sdk::logs::BatchLogProcessor::builder(exporter.build()?)
-                        .with_batch_config(c.builder().build())
+            |b,
+             LogProcessor {
+                 batch,
+                 exporter: Exporter { export, transport },
+             }| {
+                let exp = match transport {
+                    Transport::Http(http) => export
+                        .apply(http.apply(opentelemetry_otlp::LogExporter::builder().with_http()))
                         .build(),
-                )),
+                    Transport::Tonic(tonic) => export
+                        .apply(tonic.apply(opentelemetry_otlp::LogExporter::builder().with_tonic()))
+                        .build(),
+                }?;
+
+                match batch {
+                    Some(batch) => Ok(b.with_log_processor(
+                        opentelemetry_sdk::logs::BatchLogProcessor::builder(exp)
+                            .with_batch_config(batch.builder().build())
+                            .build(),
+                    )),
+                    None => Ok(b.with_simple_exporter(exp)),
+                }
             },
         )
-    }
-}
-
-impl LogExporter {
-    pub fn build(self) -> Result<opentelemetry_otlp::LogExporter, BoxError> {
-        match self {
-            LogExporter::Http { export, config } => Ok(config
-                .apply(export.apply(opentelemetry_otlp::LogExporter::builder().with_http()))
-                .build()?),
-            LogExporter::Tonic { export, config } => Ok(config
-                .apply(export.apply(opentelemetry_otlp::LogExporter::builder().with_tonic()))
-                .build()?),
-        }
     }
 }
 
@@ -99,6 +89,75 @@ impl LoggerBatchConfig {
             .tap_opt(max_export_batch_size, |b, v| {
                 b.with_max_export_batch_size(v)
             })
+    }
+}
+
+serde! {
+
+    pub struct Meter {
+        #[serde(default)]
+        pub scope: InstrumentationScope,
+        #[serde(default)]
+        pub provider: MeterProvider,
+    }
+
+    #[derive(Default)]
+    pub struct MeterProvider {
+        #[serde(default)]
+        pub resource: Resource,
+        #[serde(default, skip_serializing_if = "is_empty")]
+        pub exporters: Vec<MetricExporter>,
+    }
+
+    
+
+    pub struct MetricExporter {
+        pub temporality: Option<MetricTemporality>,
+        pub exporter: Exporter,
+    }
+
+    pub enum MetricTemporality {
+        Cumulative,
+        Delta,
+        LowMemory
+    }
+}
+
+impl MeterProvider {
+    pub fn builder(self) -> Result<opentelemetry_sdk::metrics::MeterProviderBuilder, BoxError> {
+        let Self {
+            resource,
+            exporters,
+        } = self;
+        exporters.into_iter().try_fold(
+            opentelemetry_sdk::metrics::MeterProviderBuilder::default()
+                .with_resource(resource.builder().build()),
+            |mpb,
+             MetricExporter {
+                 temporality,
+                 exporter: Exporter { export, transport },
+             }| {
+                let b =
+                    opentelemetry_otlp::MetricExporter::builder().tap_opt(temporality, |b, v| {
+                        b.with_temporality(match v {
+                            MetricTemporality::Cumulative => {
+                                opentelemetry_sdk::metrics::Temporality::Cumulative
+                            }
+                            MetricTemporality::Delta => {
+                                opentelemetry_sdk::metrics::Temporality::Delta
+                            }
+                            MetricTemporality::LowMemory => {
+                                opentelemetry_sdk::metrics::Temporality::LowMemory
+                            }
+                        })
+                    });
+                let exp = match transport {
+                    Transport::Http(http) => export.apply(http.apply(b.with_http())).build(),
+                    Transport::Tonic(tonic) => export.apply(tonic.apply(b.with_tonic())).build(),
+                }?;
+                Ok(mpb.with_periodic_exporter(exp))
+            },
+        )
     }
 }
 
@@ -144,6 +203,12 @@ serde! {
         pub compression: Option<opentelemetry_otlp::Compression>,
         #[serde_as(as = "Option<HeaderMap>")]
         pub headers: Option<http::HeaderMap>,
+    }
+
+    pub struct Exporter {
+        #[serde(default)]
+        pub export: ExportConfig,
+        pub transport: Transport,
     }
 
     pub enum Transport {
