@@ -1,7 +1,13 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{DeserializeAs, DisplayFromStr, Map, SerializeAs, schemars_1::JsonSchemaAs};
-use std::{borrow::Cow, collections::BTreeMap, fmt, marker::PhantomData, time::Duration};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, HashMap},
+    fmt,
+    marker::PhantomData,
+    time::Duration,
+};
 
 pub mod backon;
 pub mod otel;
@@ -440,5 +446,11 @@ impl<T> IsEmpty for Vec<T> {
 impl<K, V> IsEmpty for BTreeMap<K, V> {
     fn is_empty(&self) -> bool {
         BTreeMap::is_empty(self)
+    }
+}
+
+impl<K, V, S> IsEmpty for HashMap<K, V, S> {
+    fn is_empty(&self) -> bool {
+        HashMap::is_empty(self)
     }
 }

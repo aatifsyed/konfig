@@ -2,23 +2,108 @@ use crate::*;
 
 use std::{
     collections::{BTreeMap, HashMap},
-    str::FromStr,
     time::Duration,
 };
 
-use opentelemetry::{KeyValue, metrics::MeterProvider as _, trace::TracerProvider as _};
 use opentelemetry_otlp::{
-    ExporterBuildError, HasExportConfig, HasHttpConfig, HasTonicConfig, MetricExporterBuilder,
-    SpanExporterBuilder, WithExportConfig, WithHttpConfig, WithTonicConfig as _,
-};
-use opentelemetry_sdk::{
-    metrics::{MeterProviderBuilder, PeriodicReader, PeriodicReaderBuilder},
-    resource::ResourceBuilder,
-    trace::{SdkTracerProvider, TracerProviderBuilder},
+    HasExportConfig, HasHttpConfig, HasTonicConfig, WithExportConfig as _, WithHttpConfig as _,
+    WithTonicConfig,
 };
 use serde_with::FromInto;
 
 serde! {
+    pub struct Logger {
+        pub scope: InstrumentationScope,
+        pub provider: LoggerProvider,
+    }
+
+    pub struct LoggerProvider {
+        #[serde(default)]
+        pub resource: Resource,
+        #[serde(default, skip_serializing_if = "is_empty")]
+        pub processors: Vec<LogProcessor>,
+    }
+
+    pub struct LogProcessor {
+        pub batch: Option<LoggerBatchConfig>,
+        pub exporter: LogExporter,
+    }
+
+    pub enum LogExporter {
+        Http {
+            #[serde(default)]
+            export: ExportConfig,
+            #[serde(default)]
+            config: HttpConfig,
+        },
+        Tonic {
+            #[serde(default)]
+            export: ExportConfig,
+            #[serde(default)]
+            config: TonicConfig,
+        }
+    }
+
+    pub struct LoggerBatchConfig {
+        pub max_queue_size: Option<usize>,
+        #[serde_as(as = "Option<AsHumanDuration>")]
+        pub scheduled_delay: Option<Duration>,
+        pub max_export_batch_size: Option<usize>,
+    }
+}
+
+impl LoggerProvider {
+    pub fn builder(self) -> Result<opentelemetry_sdk::logs::LoggerProviderBuilder, BoxError> {
+        let Self {
+            resource,
+            processors,
+        } = self;
+        processors.into_iter().try_fold(
+            opentelemetry_sdk::logs::LoggerProviderBuilder::default()
+                .with_resource(resource.builder().build()),
+            |b, LogProcessor { batch, exporter }| match batch {
+                None => exporter.build().map(|e| b.with_simple_exporter(e)),
+                Some(c) => Ok(b.with_log_processor(
+                    opentelemetry_sdk::logs::BatchLogProcessor::builder(exporter.build()?)
+                        .with_batch_config(c.builder().build())
+                        .build(),
+                )),
+            },
+        )
+    }
+}
+
+impl LogExporter {
+    pub fn build(self) -> Result<opentelemetry_otlp::LogExporter, BoxError> {
+        match self {
+            LogExporter::Http { export, config } => Ok(config
+                .apply(export.apply(opentelemetry_otlp::LogExporter::builder().with_http()))
+                .build()?),
+            LogExporter::Tonic { export, config } => Ok(config
+                .apply(export.apply(opentelemetry_otlp::LogExporter::builder().with_tonic()))
+                .build()?),
+        }
+    }
+}
+
+impl LoggerBatchConfig {
+    pub fn builder(self) -> opentelemetry_sdk::logs::BatchConfigBuilder {
+        let Self {
+            max_queue_size,
+            scheduled_delay,
+            max_export_batch_size,
+        } = self;
+        opentelemetry_sdk::logs::BatchConfigBuilder::default()
+            .tap_opt(max_queue_size, |b, v| b.with_max_queue_size(v))
+            .tap_opt(scheduled_delay, |b, v| b.with_scheduled_delay(v))
+            .tap_opt(max_export_batch_size, |b, v| {
+                b.with_max_export_batch_size(v)
+            })
+    }
+}
+
+serde! {
+    #[derive(Default)]
     pub struct InstrumentationScope {
         #[serde(default, skip_serializing_if = "is_empty")]
         pub name: String,
@@ -28,6 +113,7 @@ serde! {
         pub attributes: BTreeMap<String, Value>,
     }
 
+    #[derive(Default)]
     pub struct Resource {
         #[serde(default, skip_serializing_if = "is_empty")]
         pub attributes: BTreeMap<String, Value>,
@@ -35,12 +121,34 @@ serde! {
         pub detect: Option<bool>,
     }
 
+    #[derive(Default)]
     pub struct ExportConfig {
         pub endpoint: Option<String>,
         #[serde_as(as = "Option<AsHumanDuration>")]
         pub timeout: Option<Duration>,
         #[serde_as(as = "Option<FromInto<_Protocol>>")]
         pub protocol: Option<opentelemetry_otlp::Protocol>,
+    }
+
+    #[derive(Default)]
+    pub struct HttpConfig {
+        #[serde_as(as = "Option<FromInto<_Compression>>")]
+        pub compression: Option<opentelemetry_otlp::Compression>,
+        #[serde(default, skip_serializing_if = "is_empty")]
+        pub headers: HashMap<String, String>,
+    }
+
+    #[derive(Default)]
+    pub struct TonicConfig {
+        #[serde_as(as = "Option<FromInto<_Compression>>")]
+        pub compression: Option<opentelemetry_otlp::Compression>,
+        #[serde_as(as = "Option<HeaderMap>")]
+        pub headers: Option<http::HeaderMap>,
+    }
+
+    pub enum Transport {
+        Http(HttpConfig),
+        Tonic(TonicConfig),
     }
 
 
@@ -96,7 +204,11 @@ impl InstrumentationScope {
         opentelemetry::InstrumentationScope::builder(name)
             .tap_opt(version, |b, v| b.with_version(v))
             .tap_opt(schema_url, |b, v| b.with_schema_url(v))
-            .with_attributes(attributes.into_iter().map(|(k, v)| KeyValue::new(k, v)))
+            .with_attributes(
+                attributes
+                    .into_iter()
+                    .map(|(k, v)| opentelemetry::KeyValue::new(k, v)),
+            )
     }
 }
 
@@ -112,7 +224,11 @@ impl Resource {
             false => opentelemetry_sdk::Resource::builder_empty(),
         }
         .tap_opt(schema_url, |b, v| b.with_schema_url([], v))
-        .with_attributes(attributes.into_iter().map(|(k, v)| KeyValue::new(k, v)))
+        .with_attributes(
+            attributes
+                .into_iter()
+                .map(|(k, v)| opentelemetry::KeyValue::new(k, v)),
+        )
     }
 }
 
@@ -152,5 +268,32 @@ impl ExportConfig {
             protocol,
             timeout,
         })
+    }
+}
+
+impl HttpConfig {
+    pub fn apply<T: HasHttpConfig>(self, to: T) -> T {
+        let Self {
+            compression,
+            headers,
+        } = self;
+        to.tap_opt(compression, |b, v| b.with_compression(v))
+            .with_headers(headers)
+    }
+}
+
+impl TonicConfig {
+    pub fn apply<T: HasTonicConfig>(self, to: T) -> T {
+        let Self {
+            compression,
+            headers,
+        } = self;
+
+        to.tap_opt(compression, |b, v| b.with_compression(v))
+            .tap_opt(headers, |b, v| {
+                let mut m = opentelemetry_otlp::tonic_types::metadata::MetadataMap::new();
+                *m.as_mut() = v;
+                b.with_metadata(m)
+            })
     }
 }
