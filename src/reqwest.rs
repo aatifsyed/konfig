@@ -304,14 +304,14 @@ impl From<_Version> for reqwest::tls::Version {
 }
 
 impl TryFrom<reqwest::tls::Version> for _Version {
-    type Error = String;
+    type Error = BoxError;
     fn try_from(value: reqwest::tls::Version) -> Result<Self, Self::Error> {
         Ok(match value {
             reqwest::tls::Version::TLS_1_0 => _Version::V1_0,
             reqwest::tls::Version::TLS_1_1 => _Version::V1_1,
             reqwest::tls::Version::TLS_1_2 => _Version::V1_2,
             reqwest::tls::Version::TLS_1_3 => _Version::V1_3,
-            other => return Err(format!("uncovered version {other:?}")),
+            other => return Err(BoxError::from(format!("uncovered version {other:?}"))),
         })
     }
 }

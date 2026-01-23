@@ -1,9 +1,16 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{DeserializeAs, DisplayFromStr, Map, SerializeAs, schemars_1::JsonSchemaAs};
-use std::{borrow::Cow, fmt, marker::PhantomData, time::Duration};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, HashMap},
+    fmt,
+    marker::PhantomData,
+    time::Duration,
+};
 
 pub mod backon;
+pub mod otel;
 pub mod regex;
 pub mod reqwest;
 pub mod tokio;
@@ -304,27 +311,29 @@ impl JsonSchemaAs<http::HeaderMap> for HeaderMap {
 
 struct BoundedFloat<const LO: i64, const HI: i64>;
 
-impl<'de, const LO: i64, const HI: i64> DeserializeAs<'de, f32> for BoundedFloat<LO, HI> {
-    fn deserialize_as<D: Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
-        let f = f32::deserialize(d)?;
-        let rng = (LO as f32)..=(HI as f32);
-        match rng.contains(&f) {
+impl<'de, const LO: i64, const HI: i64, T: Deserialize<'de> + Into<f64> + Clone>
+    DeserializeAs<'de, T> for BoundedFloat<LO, HI>
+{
+    fn deserialize_as<D: Deserializer<'de>>(d: D) -> Result<T, D::Error> {
+        let f = T::deserialize(d)?;
+        let rng = (LO as f64)..=(HI as f64);
+        match rng.contains(&f.clone().into()) {
             true => Ok(f),
             false => Err(serde::de::Error::invalid_value(
-                serde::de::Unexpected::Float(f as _),
+                serde::de::Unexpected::Float(f.into()),
                 &&*format!("a float in the range {rng:?}"),
             )),
         }
     }
 }
 
-impl<const LO: i64, const HI: i64> SerializeAs<f32> for BoundedFloat<LO, HI> {
-    fn serialize_as<S: Serializer>(this: &f32, s: S) -> Result<S::Ok, S::Error> {
+impl<const LO: i64, const HI: i64, T: Serialize> SerializeAs<T> for BoundedFloat<LO, HI> {
+    fn serialize_as<S: Serializer>(this: &T, s: S) -> Result<S::Ok, S::Error> {
         this.serialize(s)
     }
 }
 
-impl<const LO: i64, const HI: i64> JsonSchemaAs<f32> for BoundedFloat<LO, HI> {
+impl<const LO: i64, const HI: i64, T> JsonSchemaAs<T> for BoundedFloat<LO, HI> {
     fn schema_name() -> Cow<'static, str> {
         format!("BoundedFloat<{LO}, {HI}>").into()
     }
@@ -339,7 +348,12 @@ impl<const LO: i64, const HI: i64> JsonSchemaAs<f32> for BoundedFloat<LO, HI> {
         true
     }
     fn schema_id() -> Cow<'static, str> {
-        format!("{}::{}", module_path!(), Self::schema_name()).into()
+        format!(
+            "{}::{}",
+            module_path!(),
+            <Self as JsonSchemaAs<T>>::schema_name()
+        )
+        .into()
     }
 }
 
@@ -415,4 +429,35 @@ literal! {
     struct True(bool = true);
     #[derive(Clone, Debug)]
     struct False(bool = false);
+}
+
+fn is_empty<T: IsEmpty>(this: &T) -> bool {
+    T::is_empty(this)
+}
+
+trait IsEmpty {
+    fn is_empty(&self) -> bool;
+}
+
+impl IsEmpty for String {
+    fn is_empty(&self) -> bool {
+        String::is_empty(self)
+    }
+}
+
+impl<T> IsEmpty for Vec<T> {
+    fn is_empty(&self) -> bool {
+        Vec::is_empty(self)
+    }
+}
+impl<K, V> IsEmpty for BTreeMap<K, V> {
+    fn is_empty(&self) -> bool {
+        BTreeMap::is_empty(self)
+    }
+}
+
+impl<K, V, S> IsEmpty for HashMap<K, V, S> {
+    fn is_empty(&self) -> bool {
+        HashMap::is_empty(self)
+    }
 }
