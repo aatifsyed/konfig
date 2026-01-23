@@ -199,7 +199,10 @@ serde! {
         #[default]
         Always,
         Never,
-        Ratio(f64),
+        Ratio(
+            #[serde_as(as = "BoundedFloat<0, 1>")]
+            f64
+        ),
     }
 }
 

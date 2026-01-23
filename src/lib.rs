@@ -311,27 +311,29 @@ impl JsonSchemaAs<http::HeaderMap> for HeaderMap {
 
 struct BoundedFloat<const LO: i64, const HI: i64>;
 
-impl<'de, const LO: i64, const HI: i64> DeserializeAs<'de, f32> for BoundedFloat<LO, HI> {
-    fn deserialize_as<D: Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
-        let f = f32::deserialize(d)?;
-        let rng = (LO as f32)..=(HI as f32);
-        match rng.contains(&f) {
+impl<'de, const LO: i64, const HI: i64, T: Deserialize<'de> + Into<f64> + Clone>
+    DeserializeAs<'de, T> for BoundedFloat<LO, HI>
+{
+    fn deserialize_as<D: Deserializer<'de>>(d: D) -> Result<T, D::Error> {
+        let f = T::deserialize(d)?;
+        let rng = (LO as f64)..=(HI as f64);
+        match rng.contains(&f.clone().into()) {
             true => Ok(f),
             false => Err(serde::de::Error::invalid_value(
-                serde::de::Unexpected::Float(f as _),
+                serde::de::Unexpected::Float(f.into()),
                 &&*format!("a float in the range {rng:?}"),
             )),
         }
     }
 }
 
-impl<const LO: i64, const HI: i64> SerializeAs<f32> for BoundedFloat<LO, HI> {
-    fn serialize_as<S: Serializer>(this: &f32, s: S) -> Result<S::Ok, S::Error> {
+impl<const LO: i64, const HI: i64, T: Serialize> SerializeAs<T> for BoundedFloat<LO, HI> {
+    fn serialize_as<S: Serializer>(this: &T, s: S) -> Result<S::Ok, S::Error> {
         this.serialize(s)
     }
 }
 
-impl<const LO: i64, const HI: i64> JsonSchemaAs<f32> for BoundedFloat<LO, HI> {
+impl<const LO: i64, const HI: i64, T> JsonSchemaAs<T> for BoundedFloat<LO, HI> {
     fn schema_name() -> Cow<'static, str> {
         format!("BoundedFloat<{LO}, {HI}>").into()
     }
@@ -346,7 +348,12 @@ impl<const LO: i64, const HI: i64> JsonSchemaAs<f32> for BoundedFloat<LO, HI> {
         true
     }
     fn schema_id() -> Cow<'static, str> {
-        format!("{}::{}", module_path!(), Self::schema_name()).into()
+        format!(
+            "{}::{}",
+            module_path!(),
+            <Self as JsonSchemaAs<T>>::schema_name()
+        )
+        .into()
     }
 }
 
