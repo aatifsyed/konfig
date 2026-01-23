@@ -93,7 +93,6 @@ impl LoggerBatchConfig {
 }
 
 serde! {
-
     pub struct Meter {
         #[serde(default)]
         pub scope: InstrumentationScope,
@@ -108,8 +107,6 @@ serde! {
         #[serde(default, skip_serializing_if = "is_empty")]
         pub exporters: Vec<MetricExporter>,
     }
-
-    
 
     pub struct MetricExporter {
         pub temporality: Option<MetricTemporality>,
@@ -158,6 +155,136 @@ impl MeterProvider {
                 Ok(mpb.with_periodic_exporter(exp))
             },
         )
+    }
+}
+
+serde! {
+    pub struct Tracer {
+        #[serde(default)]
+        pub scope: InstrumentationScope,
+        #[serde(default)]
+        pub provider: TracerProvider,
+    }
+
+    #[derive(Default)]
+    pub struct TracerProvider {
+        #[serde(default)]
+        pub resource: Resource,
+        #[serde(default)]
+        pub sampler: Sampler,
+        #[serde(default, skip_serializing_if = "is_empty")]
+        pub processors: Vec<SpanProcessor>,
+
+        pub max_events_per_span: Option<u32>,
+        pub max_attributes_per_span: Option<u32>,
+        pub max_links_per_span: Option<u32>,
+        pub max_attributes_per_event: Option<u32>,
+        pub max_attributes_per_link: Option<u32>,
+    }
+
+    pub struct SpanProcessor {
+        pub batch: Option<SpanBatchConfig>,
+        pub exporter: Exporter,
+    }
+
+    pub struct SpanBatchConfig {
+        pub max_queue_size: Option<usize>,
+        #[serde_as(as = "Option<AsHumanDuration>")]
+        pub scheduled_delay: Option<Duration>,
+        pub max_export_batch_size: Option<usize>,
+    }
+
+    #[derive(Default)]
+    pub enum Sampler {
+        #[default]
+        Always,
+        Never,
+        Ratio(f64),
+    }
+}
+
+impl TracerProvider {
+    pub fn builder(self) -> Result<opentelemetry_sdk::trace::TracerProviderBuilder, BoxError> {
+        let Self {
+            resource,
+            sampler,
+            processors,
+
+            max_events_per_span,
+            max_attributes_per_span,
+            max_links_per_span,
+            max_attributes_per_event,
+            max_attributes_per_link,
+        } = self;
+        let b = opentelemetry_sdk::trace::TracerProviderBuilder::default()
+            .with_resource(resource.builder().build())
+            .tap_opt(max_events_per_span, |b, v| b.with_max_events_per_span(v))
+            .tap_opt(max_attributes_per_span, |b, v| {
+                b.with_max_attributes_per_span(v)
+            })
+            .tap_opt(max_links_per_span, |b, v| b.with_max_links_per_span(v))
+            .tap_opt(max_attributes_per_event, |b, v| {
+                b.with_max_attributes_per_event(v)
+            })
+            .tap_opt(max_attributes_per_link, |b, v| {
+                b.with_max_attributes_per_link(v)
+            })
+            .with_sampler(sampler.build());
+
+        processors.into_iter().try_fold(
+            b,
+            |b,
+             SpanProcessor {
+                 batch,
+                 exporter: Exporter { export, transport },
+             }| {
+                let exp = match transport {
+                    Transport::Http(http) => export
+                        .apply(http.apply(opentelemetry_otlp::SpanExporter::builder().with_http()))
+                        .build()?,
+                    Transport::Tonic(tonic) => export
+                        .apply(
+                            tonic.apply(opentelemetry_otlp::SpanExporter::builder().with_tonic()),
+                        )
+                        .build()?,
+                };
+
+                match batch {
+                    Some(batch) => Ok(b.with_span_processor(
+                        opentelemetry_sdk::trace::BatchSpanProcessor::builder(exp)
+                            .with_batch_config(batch.builder().build())
+                            .build(),
+                    )),
+                    None => Ok(b.with_simple_exporter(exp)),
+                }
+            },
+        )
+    }
+}
+
+impl SpanBatchConfig {
+    pub fn builder(self) -> opentelemetry_sdk::trace::BatchConfigBuilder {
+        let Self {
+            max_queue_size,
+            scheduled_delay,
+            max_export_batch_size,
+        } = self;
+        opentelemetry_sdk::trace::BatchConfigBuilder::default()
+            .tap_opt(max_queue_size, |b, v| b.with_max_queue_size(v))
+            .tap_opt(scheduled_delay, |b, v| b.with_scheduled_delay(v))
+            .tap_opt(max_export_batch_size, |b, v| {
+                b.with_max_export_batch_size(v)
+            })
+    }
+}
+
+impl Sampler {
+    pub fn build(self) -> opentelemetry_sdk::trace::Sampler {
+        match self {
+            Sampler::Always => opentelemetry_sdk::trace::Sampler::AlwaysOn,
+            Sampler::Never => opentelemetry_sdk::trace::Sampler::AlwaysOff,
+            Sampler::Ratio(it) => opentelemetry_sdk::trace::Sampler::TraceIdRatioBased(it),
+        }
     }
 }
 
