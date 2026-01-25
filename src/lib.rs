@@ -10,7 +10,7 @@ use std::{
 };
 
 pub mod backon;
-pub mod otel;
+pub mod otlp;
 pub mod regex;
 pub mod reqwest;
 pub mod tokio;
