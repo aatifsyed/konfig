@@ -9,17 +9,17 @@ use tracing_subscriber::Layer as _;
 serde! {
     #[derive(Default)]
     pub struct FmtLayer {
-        pub format: Option<FormatEvent>,
+        pub format: Option<FmtLayerFormat>,
         pub writer: Option<Writer>,
         pub non_blocking: Option<NonBlocking>,
         pub filter: Option<FmtLayerFilter>,
     }
 
     #[derive(Default)]
-    pub struct FormatEvent {
-        pub style: Option<FormatEventStyle>,
-        pub time: Option<FormatTime>,
+    pub struct FmtLayerFormat {
+        pub formatter: Option<Formatter>,
         pub options: Option<FormatOptions>,
+        pub span_events: Option<FmtSpan>,
     }
 
     #[serde(untagged)]
@@ -34,138 +34,6 @@ serde! {
     }
 }
 
-impl FmtLayerFilter {
-    pub fn build<S: tracing::Subscriber>(
-        self,
-    ) -> Box<dyn tracing_subscriber::layer::Filter<S> + Send + Sync> {
-        match self {
-            FmtLayerFilter::Level { level } => Box::new(level),
-            FmtLayerFilter::Targets(it) => Box::new(it.build()),
-            FmtLayerFilter::EnvFilterDirectives(it) => Box::new(it.build()),
-            FmtLayerFilter::EnvFilterFromEnv(it) => Box::new(it.build()),
-        }
-    }
-}
-
-impl FormatEvent {
-    pub fn build<S, N>(self) -> (DynFormatFields, DynFormatEvent<S, N>)
-    where
-        S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
-        N: for<'a> tracing_subscriber::fmt::FormatFields<'a> + 'static,
-    {
-        use tracing_subscriber::fmt::format::Format;
-
-        let Self {
-            style,
-            time,
-            options,
-        } = self;
-        let options = options.unwrap_or_default();
-        let timer = time.unwrap_or_default().build();
-        match style.unwrap_or_default() {
-            FormatEventStyle::Full => (
-                DynFormatFields(_DynFormatFields::Default(
-                    tracing_subscriber::fmt::format::DefaultFields::new(),
-                )),
-                DynFormatEvent::new(options.apply(Format::default()).with_timer(timer)),
-            ),
-            FormatEventStyle::Compact => (
-                DynFormatFields(_DynFormatFields::Default(
-                    tracing_subscriber::fmt::format::DefaultFields::new(),
-                )),
-                DynFormatEvent::new(options.apply(Format::default().compact()).with_timer(timer)),
-            ),
-            FormatEventStyle::Pretty => (
-                DynFormatFields(_DynFormatFields::Pretty(
-                    tracing_subscriber::fmt::format::PrettyFields::new(),
-                )),
-                DynFormatEvent::new(options.apply(Format::default().pretty()).with_timer(timer)),
-            ),
-            FormatEventStyle::Json(json) => (
-                DynFormatFields(_DynFormatFields::Json(
-                    tracing_subscriber::fmt::format::JsonFields::new(),
-                )),
-                DynFormatEvent::new(
-                    options
-                        .apply(json.apply(Format::default().json()))
-                        .with_timer(timer),
-                ),
-            ),
-        }
-    }
-}
-
-pub struct DynFormatEvent<S, N>(Arc<dyn tracing_subscriber::fmt::FormatEvent<S, N> + Send + Sync>);
-
-impl<S, N> DynFormatEvent<S, N> {
-    pub fn new<F>(fmt: F) -> Self
-    where
-        F: tracing_subscriber::fmt::FormatEvent<S, N> + Send + Sync + 'static,
-        S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
-        N: for<'a> tracing_subscriber::fmt::FormatFields<'a> + 'static,
-    {
-        Self(Arc::new(fmt))
-    }
-}
-
-impl<S, N> tracing_subscriber::fmt::FormatEvent<S, N> for DynFormatEvent<S, N>
-where
-    S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
-    N: for<'a> tracing_subscriber::fmt::FormatFields<'a> + 'static,
-{
-    fn format_event(
-        &self,
-        ctx: &tracing_subscriber::fmt::FmtContext<'_, S, N>,
-        writer: tracing_subscriber::fmt::format::Writer<'_>,
-        event: &tracing::Event<'_>,
-    ) -> fmt::Result {
-        self.0.format_event(ctx, writer, event)
-    }
-}
-
-pub struct DynFormatFields(_DynFormatFields);
-
-enum _DynFormatFields {
-    Json(tracing_subscriber::fmt::format::JsonFields),
-    Pretty(tracing_subscriber::fmt::format::PrettyFields),
-    Default(tracing_subscriber::fmt::format::DefaultFields),
-}
-
-impl<'a> tracing_subscriber::fmt::FormatFields<'a> for DynFormatFields {
-    fn format_fields<R>(
-        &self,
-        writer: tracing_subscriber::fmt::format::Writer<'a>,
-        fields: R,
-    ) -> fmt::Result
-    where
-        R: tracing_subscriber::field::RecordFields,
-    {
-        let Self(inner) = self;
-        match inner {
-            _DynFormatFields::Json(it) => it.format_fields(writer, fields),
-            _DynFormatFields::Pretty(it) => it.format_fields(writer, fields),
-            _DynFormatFields::Default(it) => it.format_fields(writer, fields),
-        }
-    }
-
-    // fn add_fields(
-    //     &self,
-    //     current: &'a mut tracing_subscriber::fmt::FormattedFields<Self>, // !oops
-    //     fields: &tracing::span::Record<'_>,
-    // ) -> fmt::Result {
-    //     let Self(inner) = self;
-    //     match inner {
-    //         _DynFormatFields::Json(it) => it.add_fields(current, fields),
-    //         _DynFormatFields::Pretty(it) => it.add_fields(current, fields),
-    //         _DynFormatFields::Default(it) => it.add_fields(current, fields),
-    //     }
-    // }
-}
-
-#[must_use]
-#[expect(dead_code)]
-pub struct DynGuard(Box<dyn Send + Sync>);
-
 impl FmtLayer {
     #[expect(clippy::type_complexity)]
     pub fn build<S>(
@@ -173,12 +41,7 @@ impl FmtLayer {
     ) -> Result<
         (
             tracing_subscriber::filter::Filtered<
-                tracing_subscriber::fmt::Layer<
-                    S,
-                    DynFormatFields,
-                    DynFormatEvent<S, DynFormatFields>,
-                    tracing_subscriber::fmt::writer::BoxMakeWriter,
-                >,
+                Box<dyn tracing_subscriber::Layer<S> + Send + Sync>,
                 Box<dyn tracing_subscriber::layer::Filter<S> + Send + Sync>,
                 S,
             >,
@@ -204,22 +67,93 @@ impl FmtLayer {
                     Some(gd),
                 )
             }
-            None => (writer.build_make_writer()?, None),
+            None => (
+                tracing_subscriber::fmt::writer::BoxMakeWriter::new(writer.build_make_writer()?),
+                None,
+            ),
         };
-
-        let fil = filter.map_or(
-            Box::new(tracing::level_filters::LevelFilter::WARN) as _,
-            FmtLayerFilter::build,
-        );
-        let (flds, evt) = format.unwrap_or_default().build();
-        let lyr = tracing_subscriber::fmt::layer::<S>()
-            .fmt_fields(flds)
-            .event_format(evt)
-            .with_writer(mw)
-            .with_filter(fil);
+        let lyr = format
+            .unwrap_or_default()
+            .apply(tracing_subscriber::fmt::layer().with_writer(mw))
+            .with_filter(
+                filter
+                    .unwrap_or(FmtLayerFilter::Level {
+                        level: tracing::metadata::LevelFilter::WARN,
+                    })
+                    .build(),
+            );
         Ok((lyr, DynGuard(Box::new(gd))))
     }
 }
+
+impl FmtLayerFormat {
+    // the fmt_fields needs to match the evt_format, else we hit a `malformed fields` panic in the JSON formatter:
+    // https://github.com/tokio-rs/tracing/blob/cc44064b3a41cb586bd633f8a024354928e25819/tracing-subscriber/src/fmt/format/json.rs#L184
+    //
+    // so this defines our type erasure boundary.
+    pub fn apply<S, N, E, W>(
+        self,
+        to: tracing_subscriber::fmt::Layer<S, N, E, W>,
+    ) -> Box<dyn tracing_subscriber::Layer<S> + Send + Sync>
+    where
+        S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
+        W: for<'writer> tracing_subscriber::fmt::MakeWriter<'writer> + 'static + Send + Sync,
+    {
+        let Self {
+            formatter,
+            options,
+            span_events,
+        } = self;
+        let options = options.unwrap_or_default();
+        let span_events = span_events.unwrap_or_default().build();
+        match formatter.unwrap_or_default() {
+            Formatter::Full => to
+                .fmt_fields(tracing_subscriber::fmt::format::DefaultFields::new())
+                .event_format(options.apply(tracing_subscriber::fmt::format::Format::default()))
+                .with_span_events(span_events)
+                .boxed(),
+            Formatter::Compact => to
+                .fmt_fields(tracing_subscriber::fmt::format::DefaultFields::new())
+                .event_format(
+                    options.apply(tracing_subscriber::fmt::format::Format::default().compact()),
+                )
+                .with_span_events(span_events)
+                .boxed(),
+            Formatter::Pretty => to
+                .fmt_fields(tracing_subscriber::fmt::format::PrettyFields::new())
+                .event_format(
+                    options.apply(tracing_subscriber::fmt::format::Format::default().pretty()),
+                )
+                .with_span_events(span_events)
+                .boxed(),
+            Formatter::Json(json) => {
+                to.fmt_fields(tracing_subscriber::fmt::format::JsonFields::new())
+                    .event_format(options.apply(
+                        json.apply(tracing_subscriber::fmt::format::Format::default().json()),
+                    ))
+                    .with_span_events(span_events)
+                    .boxed()
+            }
+        }
+    }
+}
+
+impl FmtLayerFilter {
+    pub fn build<S: tracing::Subscriber>(
+        self,
+    ) -> Box<dyn tracing_subscriber::layer::Filter<S> + Send + Sync> {
+        match self {
+            FmtLayerFilter::Level { level } => Box::new(level),
+            FmtLayerFilter::Targets(it) => Box::new(it.build()),
+            FmtLayerFilter::EnvFilterDirectives(it) => Box::new(it.build()),
+            FmtLayerFilter::EnvFilterFromEnv(it) => Box::new(it.build()),
+        }
+    }
+}
+
+#[must_use]
+#[expect(dead_code)]
+pub struct DynGuard(Box<dyn Send + Sync>);
 
 serde! {
     #[derive(Default)]
@@ -241,7 +175,7 @@ serde! {
     }
 
     #[derive(Default)]
-    pub enum FormatEventStyle {
+    pub enum Formatter {
         #[default]
         Full,
         Compact,
