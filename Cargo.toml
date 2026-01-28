@@ -48,12 +48,16 @@ tokio = { version = "1.49.0", features = [
 ] }
 tracing = { version = "0.1.44", default-features = false }
 tracing-appender = "0.2.4"
+tracing-chrome = "0.7.2"
+tracing-flame = "0.2.0"
+tracing-journald = "0.3.2"
 tracing-subscriber = { version = "0.3.22", features = [
     "chrono",
     "json",
     "local-time",
     "env-filter",
 ] }
+tracing-tree = { version = "0.4.1", default-features = false }
 url = { version = "2.5.8", features = ["serde"] }
 
 [dev-dependencies]

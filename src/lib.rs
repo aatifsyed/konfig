@@ -147,7 +147,7 @@ serde! {
         serialize = "B: AsRef<[u8]>, S: Serialize",
         deserialize = "B: AsRef<[u8]> + From<Vec<u8>>, S: Deserialize<'de>"
     ))]
-    enum OrHex<S, B> {
+    pub enum OrHex<S, B> {
         Inline(S),
         Hex { #[serde_as(as = "serde_with::hex::Hex")] hex: B },
     }
