@@ -4,7 +4,7 @@ use ::backon;
 serde! {
     #[derive(Default)]
     pub struct ConstantBackoff {
-        #[serde_as(as = "Option<AsHumanDuration>")]
+        #[serde_as(as = "Option<HumanTime>")]
         pub delay: Option<Duration>,
         pub max_times: Option<FalseOr<usize>>,
         pub jitter: Option<BackoffJitter>,
@@ -86,11 +86,11 @@ serde! {
     pub struct ExponentialBackoff {
         pub jitter: Option<BackoffJitter>,
         pub factor: Option<f32>,
-        #[serde_as(as = "Option<AsHumanDuration>")]
+        #[serde_as(as = "Option<HumanTime>")]
         pub min_delay: Option<Duration>,
-        #[serde_as(as = "Option<AsHumanDuration>")]
+        #[serde_as(as = "Option<HumanTime>")]
         pub total_delay: Option<Duration>,
-        #[serde_as(as = "Option<FalseOrWith<AsHumanDuration, Duration>>")]
+        #[serde_as(as = "Option<FalseOrWith<HumanTime, Duration>>")]
         pub max_delay: Option<FalseOr<Duration>>,
         pub max_times: Option<FalseOr<usize>>,
     }
@@ -129,9 +129,9 @@ serde! {
     #[derive(Default)]
     pub struct FibonacciBackoff {
         pub jitter: Option<BackoffJitter>,
-        #[serde_as(as = "Option<AsHumanDuration>")]
+        #[serde_as(as = "Option<HumanTime>")]
         pub min_delay: Option<Duration>,
-        #[serde_as(as = "Option<FalseOrWith<AsHumanDuration, Duration>>")]
+        #[serde_as(as = "Option<FalseOrWith<HumanTime, Duration>>")]
         pub max_delay: Option<FalseOr<Duration>>,
         pub max_times: Option<FalseOr<usize>>,
     }

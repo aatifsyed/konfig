@@ -34,7 +34,7 @@ serde! {
 
     pub struct LoggerBatchConfig {
         pub max_queue_size: Option<usize>,
-        #[serde_as(as = "Option<AsHumanDuration>")]
+        #[serde_as(as = "Option<HumanTime>")]
         pub scheduled_delay: Option<Duration>,
         pub max_export_batch_size: Option<usize>,
     }
@@ -189,7 +189,7 @@ serde! {
 
     pub struct SpanBatchConfig {
         pub max_queue_size: Option<usize>,
-        #[serde_as(as = "Option<AsHumanDuration>")]
+        #[serde_as(as = "Option<HumanTime>")]
         pub scheduled_delay: Option<Duration>,
         pub max_export_batch_size: Option<usize>,
     }
@@ -313,7 +313,7 @@ serde! {
     #[derive(Default)]
     pub struct ExportConfig {
         pub endpoint: Option<String>,
-        #[serde_as(as = "Option<AsHumanDuration>")]
+        #[serde_as(as = "Option<HumanTime>")]
         pub timeout: Option<Duration>,
         #[serde_as(as = "Option<FromInto<_Protocol>>")]
         pub protocol: Option<opentelemetry_otlp::Protocol>,

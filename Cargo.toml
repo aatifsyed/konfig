@@ -14,8 +14,17 @@ bytes = { version = "1.11.0", features = ["serde"] }
 http = "1.4.0"
 humantime = "2.3.0"
 opentelemetry = { version = "0.31.0", features = ["metrics", "trace", "logs"] }
-opentelemetry-otlp = { version = "0.31.0", features = ["metrics", "trace", "logs", "grpc-tonic"] }
-opentelemetry_sdk = { version = "0.31.0", features = ["metrics", "trace", "logs"] }
+opentelemetry-otlp = { version = "0.31.0", features = [
+    "metrics",
+    "trace",
+    "logs",
+    "grpc-tonic",
+] }
+opentelemetry_sdk = { version = "0.31.0", features = [
+    "metrics",
+    "trace",
+    "logs",
+] }
 regex = { version = "1.12.2", default-features = false, features = ["std"] }
 reqwest = { version = "0.13.1", default-features = false, features = [
     "brotli",
@@ -36,6 +45,14 @@ tokio = { version = "1.49.0", features = [
     "rt-multi-thread",
     "net",
     "time",
+] }
+tracing = { version = "0.1.44", default-features = false }
+tracing-appender = "0.2.4"
+tracing-subscriber = { version = "0.3.22", features = [
+    "chrono",
+    "json",
+    "local-time",
+    "env-filter",
 ] }
 url = { version = "2.5.8", features = ["serde"] }
 

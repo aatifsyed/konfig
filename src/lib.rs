@@ -6,7 +6,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     fmt,
     marker::PhantomData,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 pub mod backon;
@@ -14,6 +14,7 @@ pub mod otlp;
 pub mod regex;
 pub mod reqwest;
 pub mod tokio;
+pub mod tracing;
 
 macro_rules! serde {
     ($($item:item)*) => {
@@ -91,14 +92,14 @@ trait Ext: Sized {
 
 impl<T> Ext for T {}
 
-struct AsHumanDuration;
+struct HumanTime;
 
-impl SerializeAs<Duration> for AsHumanDuration {
+impl SerializeAs<Duration> for HumanTime {
     fn serialize_as<S: Serializer>(this: &Duration, s: S) -> Result<S::Ok, S::Error> {
         s.collect_str(&humantime::format_duration(*this))
     }
 }
-impl<'de> DeserializeAs<'de, Duration> for AsHumanDuration {
+impl<'de> DeserializeAs<'de, Duration> for HumanTime {
     fn deserialize_as<D: Deserializer<'de>>(d: D) -> Result<Duration, D::Error> {
         let s = String::deserialize(d)?;
         humantime::parse_duration(&s).map_err(|e| {
@@ -114,13 +115,13 @@ impl<'de> DeserializeAs<'de, Duration> for AsHumanDuration {
     }
 }
 
-impl JsonSchemaAs<Duration> for AsHumanDuration {
+impl JsonSchemaAs<Duration> for HumanTime {
     fn schema_name() -> Cow<'static, str> {
-        "AsHumanDuration".into()
+        "HumanTime<Duration>".into()
     }
     fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
         schemars::json_schema!({
-            "title": "AsHumanDuration",
+            "title": "HumanTime",
             "type": "string",
             "description": "a human-readable duration",
             "examples": [
@@ -132,7 +133,12 @@ impl JsonSchemaAs<Duration> for AsHumanDuration {
         false
     }
     fn schema_id() -> Cow<'static, str> {
-        format!("{}::{}", module_path!(), Self::schema_name()).into()
+        format!(
+            "{}::{}",
+            module_path!(),
+            <Self as JsonSchemaAs<Duration>>::schema_name()
+        )
+        .into()
     }
 }
 
@@ -160,6 +166,14 @@ serde! {
         Or(T)
     }
 
+    #[serde(from = "Untagged<True, T>", into = "Untagged<True, T>")]
+    #[serde(bound(serialize = "T: Clone + Serialize"))]
+    #[schemars(with = "Untagged<True, T>")]
+    pub enum TrueOr<T> {
+        True,
+        Or(T)
+    }
+
     #[serde(untagged, expecting = "a map of string to string, or a sequence of pairs of string")]
     enum _HeaderMap {
         Map(
@@ -171,12 +185,48 @@ serde! {
             Vec<(http::HeaderName, http::HeaderValue)>
         )
     }
+
+    #[derive(Default)]
+    pub struct OpenOptions {
+        pub create: Option<bool>,
+        pub create_new: Option<bool>,
+        pub append: Option<bool>,
+        pub truncate: Option<bool>,
+        pub read: Option<bool>,
+        pub write: Option<bool>,
+    }
+}
+
+impl OpenOptions {
+    pub fn build(self) -> std::fs::OpenOptions {
+        let Self {
+            create,
+            create_new,
+            append,
+            truncate,
+            read,
+            write,
+        } = self;
+        let mut o = std::fs::OpenOptions::new();
+        (&mut o)
+            .tap_opt(create, |b, v| b.create(v))
+            .tap_opt(create_new, |b, v| b.create_new(v))
+            .tap_opt(append, |b, v| b.append(v))
+            .tap_opt(truncate, |b, v| b.truncate(v))
+            .tap_opt(read, |b, v| b.read(v))
+            .tap_opt(write, |b, v| b.write(v));
+        o
+    }
 }
 
 convert_enum! {
     FalseOr<T> = Untagged<False, T> [T] {
         [FalseOr::False] = [Untagged::Left(False)]
         [FalseOr::Or(it)] = [Untagged::Right(it)]
+    }
+    TrueOr<T> = Untagged<True, T> [T] {
+        [TrueOr::True] = [Untagged::Left(True)]
+        [TrueOr::Or(it)] = [Untagged::Right(it)]
     }
 }
 
@@ -185,6 +235,15 @@ impl<T> FalseOr<T> {
         match self {
             FalseOr::False => None,
             FalseOr::Or(it) => Some(it),
+        }
+    }
+}
+
+impl<T> TrueOr<T> {
+    fn into_option(self) -> Option<T> {
+        match self {
+            TrueOr::True => None,
+            TrueOr::Or(it) => Some(it),
         }
     }
 }

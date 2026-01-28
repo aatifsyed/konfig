@@ -23,14 +23,14 @@ serde! {
         pub referer: Option<bool>,
         pub retry: Option<ClientRetry>,
         pub proxies: Option<FalseOr<Vec<Proxy>>>,
-        #[serde_as(as = "Option<AsHumanDuration>")]
+        #[serde_as(as = "Option<HumanTime>")]
         pub timeout: Option<Duration>,
-        #[serde_as(as = "Option<AsHumanDuration>")]
+        #[serde_as(as = "Option<HumanTime>")]
         pub read_timeout: Option<Duration>,
-        #[serde_as(as = "Option<AsHumanDuration>")]
+        #[serde_as(as = "Option<HumanTime>")]
         pub connect_timeout: Option<Duration>,
         pub connection_verbose: Option<bool>,
-        #[serde_as(as = "Option<FalseOrWith<AsHumanDuration, Duration>>")]
+        #[serde_as(as = "Option<FalseOrWith<HumanTime, Duration>>")]
         pub pool_idle_timeout: Option<FalseOr<Duration>>,
         pub pool_max_idle_per_host: Option<usize>,
         pub http1_title_case_headers: Option<bool>,
@@ -45,20 +45,20 @@ serde! {
         pub http2_adaptive_window: Option<bool>,
         pub http2_max_frame_size: Option<FalseOr<u32>>,
         pub http2_max_list_size: Option<u32>,
-        #[serde_as(as = "Option<FalseOrWith<AsHumanDuration, Duration>>")]
+        #[serde_as(as = "Option<FalseOrWith<HumanTime, Duration>>")]
         pub http2_keep_alive_interval: Option<FalseOr<Duration>>,
-        #[serde_as(as = "Option<AsHumanDuration>")]
+        #[serde_as(as = "Option<HumanTime>")]
         pub http2_keep_alive_timeout: Option<Duration>,
         pub http2_keep_alive_while_idle: Option<bool>,
         pub tcp_nodelay: Option<bool>,
         pub local_address: Option<FalseOr<IpAddr>>,
         pub interface: Option<String>,
-        #[serde_as(as = "Option<FalseOrWith<AsHumanDuration, Duration>>")]
+        #[serde_as(as = "Option<FalseOrWith<HumanTime, Duration>>")]
         pub tcp_keepalive: Option<FalseOr<Duration>>,
-        #[serde_as(as = "Option<FalseOrWith<AsHumanDuration, Duration>>")]
+        #[serde_as(as = "Option<FalseOrWith<HumanTime, Duration>>")]
         pub tcp_keepalive_internal: Option<FalseOr<Duration>>,
         pub tcp_keepalive_retries: Option<FalseOr<u32>>,
-        #[serde_as(as = "Option<FalseOrWith<AsHumanDuration, Duration>>")]
+        #[serde_as(as = "Option<FalseOrWith<HumanTime, Duration>>")]
         pub tcp_user_timeout: Option<FalseOr<Duration>>,
         pub unix_socket: Option<String>,
         pub tls_certs: Option<TlsCerts>,

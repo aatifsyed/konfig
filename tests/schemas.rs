@@ -22,4 +22,5 @@ fn ensuring_parent_dir(e: expect_test::ExpectFile) -> expect_test::ExpectFile {
 
 test! {
     reqwest_client: konfig::reqwest::Client;
+    tracing: konfig::tracing::FmtLayer;
 }

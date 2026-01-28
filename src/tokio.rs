@@ -11,7 +11,7 @@ serde! {
         pub max_blocking_threads: Option<NonZero<usize>>,
         pub thread_name: Option<String>,
         pub thread_stack_size: Option<usize>,
-        #[serde_as(as = "Option<AsHumanDuration>")]
+        #[serde_as(as = "Option<HumanTime>")]
         pub thread_keepalive: Option<Duration>,
         pub global_queue_interval: Option<NonZero<u32>>,
         pub event_interval: Option<u32>,
