@@ -60,6 +60,7 @@ serde! {
         pub formatter: Option<Formatter>,
         pub options: Option<FormatOptions>,
         pub span_events: Option<FmtSpan>,
+        pub timer: Option<FormatTime>,
     }
 
     #[serde(untagged)]
@@ -135,13 +136,16 @@ impl FmtLayerFormat {
             formatter,
             options,
             span_events,
+            timer,
         } = self;
         let options = options.unwrap_or_default();
         let span_events = span_events.unwrap_or_default().build();
+        let timer = timer.unwrap_or_default().build();
         match formatter.unwrap_or_default() {
             Formatter::Full => to
                 .fmt_fields(tracing_subscriber::fmt::format::DefaultFields::new())
                 .event_format(options.apply(tracing_subscriber::fmt::format::Format::default()))
+                .with_timer(timer)
                 .with_span_events(span_events)
                 .boxed(),
             Formatter::Compact => to
@@ -149,6 +153,7 @@ impl FmtLayerFormat {
                 .event_format(
                     options.apply(tracing_subscriber::fmt::format::Format::default().compact()),
                 )
+                .with_timer(timer)
                 .with_span_events(span_events)
                 .boxed(),
             Formatter::Pretty => to
@@ -156,6 +161,7 @@ impl FmtLayerFormat {
                 .event_format(
                     options.apply(tracing_subscriber::fmt::format::Format::default().pretty()),
                 )
+                .with_timer(timer)
                 .with_span_events(span_events)
                 .boxed(),
             Formatter::Json(json) => {
@@ -163,6 +169,7 @@ impl FmtLayerFormat {
                     .event_format(options.apply(
                         json.apply(tracing_subscriber::fmt::format::Format::default().json()),
                     ))
+                    .with_timer(timer)
                     .with_span_events(span_events)
                     .boxed()
             }
