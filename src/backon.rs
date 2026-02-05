@@ -1,5 +1,24 @@
 use crate::*;
 use ::backon;
+use backon::BackoffBuilder as _;
+
+serde! {
+    pub enum AnyBackoff {
+        Constant(ConstantBackoff),
+        Exponential(ExponentialBackoff),
+        Fibonacci(FibonacciBackoff),
+    }
+}
+
+impl AnyBackoff {
+    pub fn build(self) -> Box<dyn backon::Backoff> {
+        match self {
+            AnyBackoff::Constant(it) => Box::new(it.builder().build()),
+            AnyBackoff::Exponential(it) => Box::new(it.builder().build()),
+            AnyBackoff::Fibonacci(it) => Box::new(it.builder().build()),
+        }
+    }
+}
 
 serde! {
     #[derive(Default)]
