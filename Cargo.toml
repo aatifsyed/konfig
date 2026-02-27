@@ -8,6 +8,11 @@ repository = "https://github.com/aatifsyed/konfig"
 homepage = "https://crates.io/crates/konfig"
 description = "serializable, schemable configuration for popular crates"
 
+[features]
+default = []
+reqwest-zstd = ["reqwest/zstd"]
+reqwest-native-tls = ["reqwest/native-tls"]
+
 [dependencies]
 backon = "1.6.0"
 bytes = { version = "1.11.0", features = ["serde"] }
@@ -34,8 +39,8 @@ reqwest = { version = "0.13.1", default-features = false, features = [
     "gzip",
     "hickory-dns",
     "http2",
-    "native-tls",
-    "zstd",
+    # "native-tls",
+    # "zstd",
 ] }
 schemars = { version = "1.2.0", features = ["url2"] }
 serde = { version = "1.0.228", features = ["derive"] }

@@ -3,7 +3,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{DeserializeAs, DisplayFromStr, Map, SerializeAs, schemars_1::JsonSchemaAs};
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
     marker::PhantomData,
     time::{Duration, Instant},
@@ -503,7 +503,6 @@ impl IsEmpty for String {
         String::is_empty(self)
     }
 }
-
 impl<T> IsEmpty for Vec<T> {
     fn is_empty(&self) -> bool {
         Vec::is_empty(self)
@@ -514,7 +513,11 @@ impl<K, V> IsEmpty for BTreeMap<K, V> {
         BTreeMap::is_empty(self)
     }
 }
-
+impl<T> IsEmpty for BTreeSet<T> {
+    fn is_empty(&self) -> bool {
+        BTreeSet::is_empty(self)
+    }
+}
 impl<K, V, S> IsEmpty for HashMap<K, V, S> {
     fn is_empty(&self) -> bool {
         HashMap::is_empty(self)

@@ -160,12 +160,18 @@ impl Client {
             resolve,
             tls_backend,
         } = self;
-        Ok(reqwest::ClientBuilder::new()
+        reqwest::ClientBuilder::new()
             .tap_opt(default_headers, |b, v| b.default_headers(v))
             .tap_opt(cookie_store, |b, v| b.cookie_store(v))
             .tap_opt(gzip, |b, v| b.gzip(v))
             .tap_opt(brotli, |b, v| b.brotli(v))
-            .tap_opt(zstd, |b, v| b.zstd(v))
+            .try_tap_opt(zstd, |b, v| match v {
+                #[cfg(feature = "reqwest-zstd")]
+                true => Ok(b.zstd(true)),
+                #[cfg(not(feature = "reqwest-zstd"))]
+                true => Err(BoxError::from("enabling zstd requires building `konfig` with `reqwest-zstd`")),
+                false => Ok::<_, BoxError>(b.no_zstd()),
+            })?
             .tap_opt(deflate, |b, v| b.deflate(v))
             .tap_opt(redirect, |b, v| match v {
                 0 => b.redirect(reqwest::redirect::Policy::none()),
@@ -285,10 +291,15 @@ impl Client {
                 v.into_iter()
                     .fold(b, |b, (domain, addrs)| b.resolve_to_addrs(&domain, &addrs))
             })
-            .tap_opt(tls_backend, |b, v| match v {
-                TlsBackend::Native => b.tls_backend_native(),
-                TlsBackend::Rustls => b.tls_backend_rustls(),
-            }))
+            .try_tap_opt(tls_backend, |b, v| match v {
+                #[cfg(feature = "reqwest-native-tls")]
+                TlsBackend::Native => Ok(b.tls_backend_native()),
+                #[cfg(not(feature = "reqwest-native-tls"))]
+                TlsBackend::Native => Err(BoxError::from(
+                    "enabling the native backend requires building `konfig` with `reqwest-native-tls`",
+                )),
+                TlsBackend::Rustls => Ok::<_, BoxError>(b.tls_backend_rustls()),
+            })
     }
 }
 
